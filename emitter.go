@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
+	"runtime"
 	"time"
 )
 
@@ -87,7 +89,13 @@ type EmitterBackend interface {
 }
 
 type Emitter struct {
-	backends []EmitterBackend
+	callback      func(context.Context, string, map[string]interface{})
+	backends      []EmitterBackend
+	addMagicProps bool
+	magicHostname bool
+	magicFilename bool
+	magicLineNo   bool
+	magicFuncName bool
 }
 
 type TimingEmitter[T any] struct {
@@ -99,7 +107,86 @@ func NewTimingEmitter[T any](emitter *Emitter) TimingEmitter[T] {
 }
 
 func NewEmitter(backends ...EmitterBackend) *Emitter {
-	return &Emitter{backends: backends}
+	return &Emitter{backends: backends, addMagicProps: false, magicHostname: false, magicFilename: false, magicLineNo: false, magicFuncName: false, callback: nil}
+}
+
+func (e *Emitter) WithCallback(callback func(context.Context, string, map[string]interface{})) *Emitter {
+	e.callback = callback
+	return e
+}
+
+func (e *Emitter) WithBackend(backend EmitterBackend) *Emitter {
+	e.backends = append(e.backends, backend)
+	return e
+}
+
+func (e *Emitter) WithMagicProps() *Emitter {
+	e.addMagicProps = true
+	return e
+}
+
+func (e *Emitter) WithMagicHostname() *Emitter {
+	e.magicHostname = true
+	return e
+}
+
+func (e *Emitter) WithMagicFilename() *Emitter {
+	e.magicFilename = true
+	return e
+}
+
+func (e *Emitter) WithMagicLineNo() *Emitter {
+	e.magicLineNo = true
+	return e
+}
+
+func (e *Emitter) WithMagicFuncName() *Emitter {
+	e.magicFuncName = true
+	return e
+}
+
+func (e *Emitter) WithAllMagicProps() *Emitter {
+	return e.WithMagicProps().WithMagicFilename().WithMagicLineNo().WithMagicFuncName()
+}
+
+func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props map[string]interface{}) map[string]interface{} {
+	if props == nil {
+		props = make(map[string]interface{}, 5)
+	}
+	p := props
+	if e.callback != nil || e.addMagicProps {
+		p = maps.Clone(props)
+	}
+	if !e.addMagicProps {
+		return p
+	}
+
+	pc, file, line, ok := runtime.Caller(2)
+	if !ok {
+		return p
+	}
+
+	if e.magicFilename {
+		p["filename"] = file
+	}
+	if e.magicLineNo {
+		p["lineNo"] = line
+	}
+	if e.magicFuncName {
+		p["funcName"] = runtime.FuncForPC(pc).Name()
+	}
+	if e.magicHostname {
+		hostname, err := os.Hostname()
+		if err != nil {
+			p["hostname"] = hostname
+		}
+	}
+
+	if e.callback != nil {
+		e.callback(ctx, event, p)
+	}
+
+	return p
 }
 
 func (e *Emitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t MetricType) {
@@ -201,42 +288,42 @@ func (e *Emitter) Tracef(event string, props map[string]interface{}, format stri
 }
 
 func (e *Emitter) InfoContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
-	updatedProps := maps.Clone(props)
+	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "INFO"
 	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
 }
 
 func (e *Emitter) WarnContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
-	updatedProps := maps.Clone(props)
+	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "WARN"
 	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
 }
 
 func (e *Emitter) ErrorContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
-	updatedProps := maps.Clone(props)
+	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "ERROR"
 	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
 }
 
 func (e *Emitter) FatalContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
-	updatedProps := maps.Clone(props)
+	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "FATAL"
 	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
 }
 
 func (e *Emitter) DebugContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
-	updatedProps := maps.Clone(props)
+	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "DEBUG"
 	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
 }
 
 func (e *Emitter) TraceContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
-	updatedProps := maps.Clone(props)
+	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "TRACE"
 	e.EmitInt(ctx, event, updatedProps, 1, COUNT)

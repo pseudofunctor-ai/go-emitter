@@ -1,9 +1,9 @@
-package slog
+//go:generate mockgen -destination=mocks/mock_log.go -package=mocks "github.com/pseudofunctor-ai/go-emitter/backends/log" LoggerInterface
+package log
 
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"maps"
 	"sort"
 	"time"
@@ -11,13 +11,20 @@ import (
 	emitter "github.com/pseudofunctor-ai/go-emitter"
 )
 
-type SlogEmitter struct {
-	logger *slog.Logger
+type LoggerInterface interface {
+	InfoContext(ctx context.Context, msg string, args ...any)
+	WarnContext(ctx context.Context, msg string, args ...any)
+	ErrorContext(ctx context.Context, msg string, args ...any)
+	DebugContext(ctx context.Context, msg string, args ...any)
 }
 
-// NewSlogEmitter creates a new slog emitter
-func NewSlogEmitter(logger *slog.Logger) *SlogEmitter {
-	return &SlogEmitter{
+type LogEmitter struct {
+	logger LoggerInterface
+}
+
+// NewLogEmitter creates a new slog emitter
+func NewLogEmitter(logger LoggerInterface) *LogEmitter {
+	return &LogEmitter{
 		logger: logger,
 	}
 }
@@ -63,7 +70,7 @@ func isLog(props map[string]interface{}) (msg string, lvl string, isLog bool) {
 }
 
 // log is used internally to log a structured log event, and ignores all other events
-func (se *SlogEmitter) log(ctx context.Context, event string, props map[string]interface{}) error {
+func (se *LogEmitter) log(ctx context.Context, event string, props map[string]interface{}) error {
 	message, level, ok := isLog(props)
 	if !ok {
 		return fmt.Errorf("not a log event")
@@ -92,15 +99,15 @@ func (se *SlogEmitter) log(ctx context.Context, event string, props map[string]i
 }
 
 // EmitFloat satisfies the EmitterBackend interface and for this backend logs the event as a structured log
-func (se *SlogEmitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t emitter.MetricType) {
+func (se *LogEmitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t emitter.MetricType) {
 	se.log(ctx, event, props)
 }
 
 // EmitInt satisfies the EmitterBackend interface and for this backend logs the event as a structured log
-func (se *SlogEmitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t emitter.MetricType) {
+func (se *LogEmitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t emitter.MetricType) {
 	se.log(ctx, event, props)
 }
 
-func (se *SlogEmitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t emitter.MetricType) {
+func (se *LogEmitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t emitter.MetricType) {
 	se.log(ctx, event, props)
 }
