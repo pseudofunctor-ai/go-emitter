@@ -4,14 +4,14 @@ import (
 	"context"
 	"time"
 
-	emitter "github.com/pseudofunctor-ai/go-emitter"
+	t "github.com/pseudofunctor-ai/go-emitter/types"
 )
 
 type Record struct {
 	Props map[string]interface{}
 	Value any
 	Name  string
-	Type  emitter.MetricType
+	Type  t.MetricType
 }
 
 type DummyEmitter struct {
@@ -27,24 +27,24 @@ func (d *DummyEmitter) Clear() {
 }
 
 // EmitFloat satisfies the EmitterBackend interface and for this backend logs the event as a structured log
-func (d *DummyEmitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t emitter.MetricType) {
+func (d *DummyEmitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType t.MetricType) {
 	if _, found := d.Memo[event]; !found {
 		d.Memo[event] = make([]Record, 0, 1)
 	}
-	d.Memo[event] = append(d.Memo[event], Record{Name: event, Props: props, Value: value, Type: t})
+	d.Memo[event] = append(d.Memo[event], Record{Name: event, Props: props, Value: value, Type: metricType})
 }
 
 // EmitInt satisfies the EmitterBackend interface and for this backend logs the event as a structured log
-func (d *DummyEmitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t emitter.MetricType) {
+func (d *DummyEmitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType t.MetricType) {
 	if _, found := d.Memo[event]; !found {
 		d.Memo[event] = make([]Record, 0, 1)
 	}
-	d.Memo[event] = append(d.Memo[event], Record{Name: event, Props: props, Value: value, Type: t})
+	d.Memo[event] = append(d.Memo[event], Record{Name: event, Props: props, Value: value, Type: metricType})
 }
 
-func (d *DummyEmitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t emitter.MetricType) {
+func (d *DummyEmitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType t.MetricType) {
 	if _, found := d.Memo[event]; !found {
 		d.Memo[event] = make([]Record, 0, 1)
 	}
-	d.Memo[event] = append(d.Memo[event], Record{Name: event, Props: props, Value: value, Type: t})
+	d.Memo[event] = append(d.Memo[event], Record{Name: event, Props: props, Value: value, Type: metricType})
 }

@@ -7,65 +7,9 @@ import (
 	"os"
 	"runtime"
 	"time"
+
+	t "github.com/pseudofunctor-ai/go-emitter/types"
 )
-
-type SimpleLogger interface {
-	Info(event string, props map[string]interface{}, msg string)
-	Warn(event string, props map[string]interface{}, msg string)
-	Error(event string, props map[string]interface{}, msg string)
-	Fatal(event string, props map[string]interface{}, msg string)
-	Debug(event string, props map[string]interface{}, msg string)
-	Trace(event string, props map[string]interface{}, msg string)
-}
-
-type SimpleLoggerFmt interface {
-	Infof(event string, props map[string]interface{}, format string, args ...interface{})
-	Warnf(event string, props map[string]interface{}, format string, args ...interface{})
-	Errorf(event string, props map[string]interface{}, format string, args ...interface{})
-	Fatalf(event string, props map[string]interface{}, format string, args ...interface{})
-	Debugf(event string, props map[string]interface{}, format string, args ...interface{})
-	Tracef(event string, props map[string]interface{}, format string, args ...interface{})
-}
-
-type ContextLogger interface {
-	InfoContext(ctx context.Context, event string, props map[string]interface{}, msg string)
-	WarnContext(ctx context.Context, event string, props map[string]interface{}, msg string)
-	ErrorContext(ctx context.Context, event string, props map[string]interface{}, msg string)
-	FatalContext(ctx context.Context, event string, props map[string]interface{}, msg string)
-	DebugContext(ctx context.Context, event string, props map[string]interface{}, msg string)
-	TraceContext(ctx context.Context, event string, props map[string]interface{}, msg string)
-}
-
-type ContextLoggerFmt interface {
-	InfofContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
-	WarnfContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
-	ErrorfContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
-	FatalfContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
-	DebugfContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
-	TracefContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
-}
-
-type MetricType int
-
-const (
-	COUNT MetricType = iota
-	GAUGE
-	HISTOGRAM
-	TIMER
-	METER
-	SET
-	EVENT
-)
-
-type Histogram interface {
-	Observe(value float64)
-}
-
-type MetricsEmitter interface {
-	Count(ctx context.Context, event string, props map[string]interface{}, value float64)
-	Gauge(ctx context.Context, event string, props map[string]interface{}, value float64)
-	Histogram(ctx context.Context, event string, props map[string]interface{}) Histogram
-}
 
 type PassthroughHistogram struct {
 	ctx     context.Context
@@ -75,27 +19,17 @@ type PassthroughHistogram struct {
 }
 
 func (h *PassthroughHistogram) Observe(value float64) {
-	h.emitter.EmitFloat(h.ctx, h.event, h.props, value, HISTOGRAM)
-}
-
-type MetricsTimer[T any] interface {
-	Time(ctx context.Context, event string, props map[string]interface{}, fn func() T) T
-}
-
-type EmitterBackend interface {
-	EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t MetricType)
-	EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t MetricType)
-	EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t MetricType)
+	h.emitter.EmitFloat(h.ctx, h.event, h.props, value, t.HISTOGRAM)
 }
 
 type Emitter struct {
-	callback      func(context.Context, string, map[string]interface{})
-	backends      []EmitterBackend
-	addMagicProps bool
-	magicHostname bool
-	magicFilename bool
-	magicLineNo   bool
-	magicFuncName bool
+	callback          func(context.Context, string, map[string]interface{})
+	hostname_provider func() (string, error)
+	backends          []t.EmitterBackend
+	magicHostname     bool
+	magicFilename     bool
+	magicLineNo       bool
+	magicFuncName     bool
 }
 
 type TimingEmitter[T any] struct {
@@ -106,8 +40,8 @@ func NewTimingEmitter[T any](emitter *Emitter) TimingEmitter[T] {
 	return TimingEmitter[T]{emitter: emitter}
 }
 
-func NewEmitter(backends ...EmitterBackend) *Emitter {
-	return &Emitter{backends: backends, addMagicProps: false, magicHostname: false, magicFilename: false, magicLineNo: false, magicFuncName: false, callback: nil}
+func NewEmitter(backends ...t.EmitterBackend) *Emitter {
+	return &Emitter{backends: backends, magicHostname: false, magicFilename: false, magicLineNo: false, magicFuncName: false, callback: nil, hostname_provider: os.Hostname}
 }
 
 func (e *Emitter) WithCallback(callback func(context.Context, string, map[string]interface{})) *Emitter {
@@ -115,13 +49,13 @@ func (e *Emitter) WithCallback(callback func(context.Context, string, map[string
 	return e
 }
 
-func (e *Emitter) WithBackend(backend EmitterBackend) *Emitter {
-	e.backends = append(e.backends, backend)
+func (e *Emitter) WithHostnameProvider(hostname_provider func() (string, error)) *Emitter {
+	e.hostname_provider = hostname_provider
 	return e
 }
 
-func (e *Emitter) WithMagicProps() *Emitter {
-	e.addMagicProps = true
+func (e *Emitter) WithBackend(backend t.EmitterBackend) *Emitter {
+	e.backends = append(e.backends, backend)
 	return e
 }
 
@@ -146,7 +80,7 @@ func (e *Emitter) WithMagicFuncName() *Emitter {
 }
 
 func (e *Emitter) WithAllMagicProps() *Emitter {
-	return e.WithMagicProps().WithMagicFilename().WithMagicLineNo().WithMagicFuncName()
+	return e.WithMagicHostname().WithMagicFilename().WithMagicLineNo().WithMagicFuncName()
 }
 
 func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props map[string]interface{}) map[string]interface{} {
@@ -154,15 +88,15 @@ func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props 
 		props = make(map[string]interface{}, 5)
 	}
 	p := props
-	if e.callback != nil || e.addMagicProps {
+	if e.callback != nil || e.magicFilename || e.magicLineNo || e.magicFuncName || e.magicHostname {
 		p = maps.Clone(props)
-	}
-	if !e.addMagicProps {
+	} else {
 		return p
 	}
 
+	_, thisFile, _, _ := runtime.Caller(0)
 	pc, file, line, ok := runtime.Caller(2)
-	if !ok {
+	if file == thisFile || !ok {
 		return p
 	}
 
@@ -176,8 +110,8 @@ func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props 
 		p["funcName"] = runtime.FuncForPC(pc).Name()
 	}
 	if e.magicHostname {
-		hostname, err := os.Hostname()
-		if err != nil {
+		hostname, err := e.hostname_provider()
+		if err == nil {
 			p["hostname"] = hostname
 		}
 	}
@@ -189,33 +123,38 @@ func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props 
 	return p
 }
 
-func (e *Emitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t MetricType) {
+// Implement EmitterBackend in case we want to stack emitters
+func (e *Emitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType t.MetricType) {
+	p := e.addMagicPropsToEvent(ctx, event, props)
 	for _, backend := range e.backends {
-		backend.EmitFloat(ctx, event, props, value, t)
+		backend.EmitFloat(ctx, event, p, value, metricType)
 	}
 }
 
-func (e *Emitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t MetricType) {
+func (e *Emitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType t.MetricType) {
+	p := e.addMagicPropsToEvent(ctx, event, props)
 	for _, backend := range e.backends {
-		backend.EmitInt(ctx, event, props, value, t)
+		backend.EmitInt(ctx, event, p, value, metricType)
 	}
 }
 
-func (e *Emitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t MetricType) {
+func (e *Emitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType t.MetricType) {
+	p := e.addMagicPropsToEvent(ctx, event, props)
 	for _, backend := range e.backends {
-		backend.EmitDuration(ctx, event, props, value, t)
+		backend.EmitDuration(ctx, event, p, value, metricType)
 	}
 }
 
+// Implement MetricsEmitter
 func (e *Emitter) Count(ctx context.Context, event string, props map[string]interface{}, value int64) {
-	e.EmitInt(ctx, event, props, value, COUNT)
+	e.EmitInt(ctx, event, props, value, t.COUNT)
 }
 
 func (e *Emitter) Gauge(ctx context.Context, event string, props map[string]interface{}, value float64) {
-	e.EmitFloat(ctx, event, props, value, GAUGE)
+	e.EmitFloat(ctx, event, props, value, t.GAUGE)
 }
 
-func (e *Emitter) Histogram(ctx context.Context, event string, props map[string]interface{}) Histogram {
+func (e *Emitter) Histogram(ctx context.Context, event string, props map[string]interface{}) t.Histogram {
 	return &PassthroughHistogram{ctx: ctx, emitter: e, event: event, props: props}
 }
 
@@ -223,22 +162,23 @@ func (e TimingEmitter[T]) Time(ctx context.Context, event string, props map[stri
 	start := time.Now()
 	r := fn()
 	elapsed := time.Since(start)
-	e.emitter.EmitInt(ctx, event, props, elapsed.Milliseconds(), TIMER)
+	e.emitter.EmitInt(ctx, event, props, elapsed.Milliseconds(), t.TIMER)
 	return r
 }
 
 func (e *Emitter) Meter(ctx context.Context, event string, props map[string]interface{}, value int64) {
-	e.EmitInt(ctx, event, props, value, METER)
+	e.EmitInt(ctx, event, props, value, t.METER)
 }
 
 func (e *Emitter) Set(ctx context.Context, event string, props map[string]interface{}, value int64) {
-	e.EmitInt(ctx, event, props, value, SET)
+	e.EmitInt(ctx, event, props, value, t.SET)
 }
 
 func (e *Emitter) Event(ctx context.Context, event string, props map[string]interface{}) {
-	e.EmitInt(ctx, event, props, 1, EVENT)
+	e.EmitInt(ctx, event, props, 1, t.EVENT)
 }
 
+// Implement SimpleLogger
 func (e *Emitter) Info(event string, props map[string]interface{}, msg string) {
 	e.InfoContext(context.Background(), event, props, msg)
 }
@@ -263,6 +203,7 @@ func (e *Emitter) Trace(event string, props map[string]interface{}, msg string) 
 	e.TraceContext(context.Background(), event, props, msg)
 }
 
+// Implement FormatLogger
 func (e *Emitter) Infof(event string, props map[string]interface{}, format string, args ...interface{}) {
 	e.InfofContext(context.Background(), event, props, format, args...)
 }
@@ -287,48 +228,50 @@ func (e *Emitter) Tracef(event string, props map[string]interface{}, format stri
 	e.TracefContext(context.Background(), event, props, format, args...)
 }
 
+// Implement SimpleContextLogger
 func (e *Emitter) InfoContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
 	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "INFO"
-	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
+	e.EmitInt(ctx, event, updatedProps, 1, t.COUNT)
 }
 
 func (e *Emitter) WarnContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
 	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "WARN"
-	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
+	e.EmitInt(ctx, event, updatedProps, 1, t.COUNT)
 }
 
 func (e *Emitter) ErrorContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
 	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "ERROR"
-	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
+	e.EmitInt(ctx, event, updatedProps, 1, t.COUNT)
 }
 
 func (e *Emitter) FatalContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
 	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "FATAL"
-	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
+	e.EmitInt(ctx, event, updatedProps, 1, t.COUNT)
 }
 
 func (e *Emitter) DebugContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
 	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "DEBUG"
-	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
+	e.EmitInt(ctx, event, updatedProps, 1, t.COUNT)
 }
 
 func (e *Emitter) TraceContext(ctx context.Context, event string, props map[string]interface{}, msg string) {
 	updatedProps := e.addMagicPropsToEvent(ctx, event, props)
 	updatedProps["_message"] = msg
 	updatedProps["_logLevel"] = "TRACE"
-	e.EmitInt(ctx, event, updatedProps, 1, COUNT)
+	e.EmitInt(ctx, event, updatedProps, 1, t.COUNT)
 }
 
+// Implement FormatContextLogger
 func (e *Emitter) InfofContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {
 	e.InfoContext(ctx, event, props, fmt.Sprintf(format, args...))
 }

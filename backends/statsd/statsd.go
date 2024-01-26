@@ -13,7 +13,7 @@ import (
 	"github.com/cactus/go-statsd-client/v5/statsd"
 	"github.com/spf13/cast"
 
-	emitter "github.com/pseudofunctor-ai/go-emitter"
+	t "github.com/pseudofunctor-ai/go-emitter/types"
 )
 
 type StatsdClient interface {
@@ -65,39 +65,39 @@ func propsToTags(props map[string]interface{}) (float32, []statsd.Tag) {
 	return rate, tags
 }
 
-// satisfy the emitter.EmitterBackend interface by implementing the EmitInt method
-func (b *StatsdBackend) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t emitter.MetricType) {
+// satisfy the t.EmitterBackend interface by implementing the EmitInt method
+func (b *StatsdBackend) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType t.MetricType) {
 	rate, tags := propsToTags(props)
 
-	switch t {
-	case emitter.GAUGE:
+	switch metricType {
+	case t.GAUGE:
 		b.client.Gauge(event, value, rate, tags...)
-	case emitter.COUNT:
+	case t.COUNT:
 		b.client.Inc(event, value, rate, tags...)
-	case emitter.TIMER:
+	case t.TIMER:
 		b.client.Timing(event, value, rate, tags...)
-	case emitter.HISTOGRAM:
+	case t.HISTOGRAM:
 		b.client.Gauge(event, value, rate, tags...)
 	}
 }
 
-// satisfy the emitter.EmitterBackend interface by implementing the EmitFloat method
-func (b *StatsdBackend) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t emitter.MetricType) {
+// satisfy the t.EmitterBackend interface by implementing the EmitFloat method
+func (b *StatsdBackend) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType t.MetricType) {
 	rate, tags := propsToTags(props)
 
-	switch t {
-	case emitter.GAUGE:
+	switch metricType {
+	case t.GAUGE:
 		b.client.Gauge(event, int64(value*10000), rate, tags...)
-	case emitter.HISTOGRAM:
+	case t.HISTOGRAM:
 		b.client.Gauge(event, int64(value*10000), rate, tags...)
 	}
 }
 
-// satisfy the emitter.EmitterBackend interface by implementing the EmitDuration method
-func (b *StatsdBackend) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t emitter.MetricType) {
+// satisfy the t.EmitterBackend interface by implementing the EmitDuration method
+func (b *StatsdBackend) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType t.MetricType) {
 	rate, tags := propsToTags(props)
-	switch t {
-	case emitter.TIMER:
+	switch metricType {
+	case t.TIMER:
 		b.client.TimingDuration(event, value, rate, tags...)
 	}
 }

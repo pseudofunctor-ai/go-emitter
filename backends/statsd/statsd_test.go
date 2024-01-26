@@ -11,6 +11,7 @@ import (
 
 	emit "github.com/pseudofunctor-ai/go-emitter"
 	"github.com/pseudofunctor-ai/go-emitter/backends/statsd/mocks"
+	t "github.com/pseudofunctor-ai/go-emitter/types"
 )
 
 // . "github.com/onsi/gomega"
@@ -31,7 +32,7 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient := mocks.NewMockStatsdClient(ctrl)
 		mockStatsdClient.EXPECT().Inc("foo", int64(1), float32(1.0)).Return(nil)
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{}, 1, emit.COUNT)
+		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{}, 1, t.COUNT)
 	})
 
 	It("should emit a duration", func() {
@@ -41,7 +42,7 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient.EXPECT().TimingDuration("foo", time.Duration(1), float32(1.0)).Return(nil)
 
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitDuration(context.Background(), "foo", map[string]interface{}{}, time.Duration(1), emit.TIMER)
+		statsdBackend.EmitDuration(context.Background(), "foo", map[string]interface{}{}, time.Duration(1), t.TIMER)
 	})
 
 	It("should emit a counter", func() {
@@ -50,7 +51,7 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient := mocks.NewMockStatsdClient(ctrl)
 		mockStatsdClient.EXPECT().Inc("foo", int64(5), float32(1.0)).Return(nil)
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{}, 5, emit.COUNT)
+		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{}, 5, t.COUNT)
 	})
 
 	It("should emit adjust the rate of a counter", func() {
@@ -59,7 +60,7 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient := mocks.NewMockStatsdClient(ctrl)
 		mockStatsdClient.EXPECT().Inc("foo", int64(5), float32(2.0)).Return(nil)
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0}, 5, emit.COUNT)
+		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0}, 5, t.COUNT)
 	})
 
 	It("should emit a gauge", func() {
@@ -68,7 +69,7 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient := mocks.NewMockStatsdClient(ctrl)
 		mockStatsdClient.EXPECT().Gauge("foo", int64(5), float32(2.0)).Return(nil)
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0}, 5, emit.GAUGE)
+		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0}, 5, t.GAUGE)
 	})
 
 	It("should emit a histogram", func() {
@@ -77,7 +78,7 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient := mocks.NewMockStatsdClient(ctrl)
 		mockStatsdClient.EXPECT().Gauge("foo", int64(5), float32(2.0)).Return(nil)
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0}, 5, emit.HISTOGRAM)
+		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0}, 5, t.HISTOGRAM)
 	})
 
 	It("Should correctly process properties to tags", func() {
@@ -86,6 +87,6 @@ var _ = Describe("Statsd", func() {
 		mockStatsdClient := mocks.NewMockStatsdClient(ctrl)
 		mockStatsdClient.EXPECT().Gauge("foo", int64(5), float32(2.0), []statsd.Tag{{"handled_unwanted_chars", "value_too"}, {"hello", "world"}}).Return(nil)
 		statsdBackend := NewStatsdBackend(mockStatsdClient)
-		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0, "Hello": "World", "Handled unwanted ... chars": "value####too"}, 5, emit.HISTOGRAM)
+		statsdBackend.EmitInt(context.Background(), "foo", map[string]interface{}{"_rate": 2.0, "Hello": "World", "Handled unwanted ... chars": "value####too"}, 5, t.HISTOGRAM)
 	})
 })

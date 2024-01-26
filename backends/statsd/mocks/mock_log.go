@@ -59,44 +59,6 @@ func (mr *MockStatsdClientMockRecorder) Gauge(arg0, arg1, arg2 any, arg3 ...any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Gauge", reflect.TypeOf((*MockStatsdClient)(nil).Gauge), varargs...)
 }
 
-// GaugeDuration mocks base method.
-func (m *MockStatsdClient) GaugeDuration(arg0 string, arg1 time.Duration, arg2 float32, arg3 ...statsd.Tag) error {
-	m.ctrl.T.Helper()
-	varargs := []any{arg0, arg1, arg2}
-	for _, a := range arg3 {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GaugeDuration", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// GaugeDuration indicates an expected call of GaugeDuration.
-func (mr *MockStatsdClientMockRecorder) GaugeDuration(arg0, arg1, arg2 any, arg3 ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{arg0, arg1, arg2}, arg3...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GaugeDuration", reflect.TypeOf((*MockStatsdClient)(nil).GaugeDuration), varargs...)
-}
-
-// GaugeFloat mocks base method.
-func (m *MockStatsdClient) GaugeFloat(arg0 string, arg1 float64, arg2 float32, arg3 ...statsd.Tag) error {
-	m.ctrl.T.Helper()
-	varargs := []any{arg0, arg1, arg2}
-	for _, a := range arg3 {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GaugeFloat", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// GaugeFloat indicates an expected call of GaugeFloat.
-func (mr *MockStatsdClientMockRecorder) GaugeFloat(arg0, arg1, arg2 any, arg3 ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{arg0, arg1, arg2}, arg3...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GaugeFloat", reflect.TypeOf((*MockStatsdClient)(nil).GaugeFloat), varargs...)
-}
-
 // Inc mocks base method.
 func (m *MockStatsdClient) Inc(arg0 string, arg1 int64, arg2 float32, arg3 ...statsd.Tag) error {
 	m.ctrl.T.Helper()

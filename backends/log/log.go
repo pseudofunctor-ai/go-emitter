@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	emitter "github.com/pseudofunctor-ai/go-emitter"
+	t "github.com/pseudofunctor-ai/go-emitter/types"
 )
 
 type LoggerInterface interface {
@@ -99,15 +99,15 @@ func (se *LogEmitter) log(ctx context.Context, event string, props map[string]in
 }
 
 // EmitFloat satisfies the EmitterBackend interface and for this backend logs the event as a structured log
-func (se *LogEmitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, t emitter.MetricType) {
+func (se *LogEmitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType t.MetricType) {
 	se.log(ctx, event, props)
 }
 
 // EmitInt satisfies the EmitterBackend interface and for this backend logs the event as a structured log
-func (se *LogEmitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, t emitter.MetricType) {
+func (se *LogEmitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType t.MetricType) {
 	se.log(ctx, event, props)
 }
 
-func (se *LogEmitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, t emitter.MetricType) {
+func (se *LogEmitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType t.MetricType) {
 	se.log(ctx, event, props)
 }
