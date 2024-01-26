@@ -59,7 +59,7 @@ type Histogram interface {
 }
 
 type MetricsEmitter interface {
-	Count(ctx context.Context, event string, props map[string]interface{}, value float64)
+	Count(ctx context.Context, event string, props map[string]interface{}, value int64)
 	Gauge(ctx context.Context, event string, props map[string]interface{}, value float64)
 	Histogram(ctx context.Context, event string, props map[string]interface{}) Histogram
 }
