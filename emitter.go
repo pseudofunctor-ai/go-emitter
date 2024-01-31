@@ -22,7 +22,16 @@ func (h *PassthroughHistogram) Observe(value float64) {
 	h.emitter.EmitFloat(h.ctx, h.event, h.props, value, t.HISTOGRAM)
 }
 
+type magicProps struct {
+	hostname string
+	filename string
+	lineNo   int
+	funcName string
+}
+
 type Emitter struct {
+	registeredEvents  map[string]struct{}
+	memoTable         map[string]magicProps
 	callback          func(context.Context, string, map[string]interface{})
 	hostname_provider func() (string, error)
 	backends          []t.EmitterBackend
@@ -41,7 +50,17 @@ func NewTimingEmitter[T any](emitter *Emitter) TimingEmitter[T] {
 }
 
 func NewEmitter(backends ...t.EmitterBackend) *Emitter {
-	return &Emitter{backends: backends, magicHostname: false, magicFilename: false, magicLineNo: false, magicFuncName: false, callback: nil, hostname_provider: os.Hostname}
+	return &Emitter{
+		registeredEvents:  make(map[string]struct{}),
+		memoTable:         make(map[string]magicProps),
+		backends:          backends,
+		magicHostname:     false,
+		magicFilename:     false,
+		magicLineNo:       false,
+		magicFuncName:     false,
+		callback:          nil,
+		hostname_provider: os.Hostname,
+	}
 }
 
 func (e *Emitter) WithCallback(callback func(context.Context, string, map[string]interface{})) *Emitter {
@@ -79,13 +98,53 @@ func (e *Emitter) WithMagicFuncName() *Emitter {
 	return e
 }
 
+func (e *Emitter) WithoutMagicProps() *Emitter {
+	e.magicHostname = false
+	e.magicFilename = false
+	e.magicLineNo = false
+	e.magicFuncName = false
+	return e
+}
+
 func (e *Emitter) WithAllMagicProps() *Emitter {
 	return e.WithMagicHostname().WithMagicFilename().WithMagicLineNo().WithMagicFuncName()
+}
+
+func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterFn {
+	if _, ok := e.registeredEvents[event]; ok {
+		panic(fmt.Sprintf("Event %s already registered", event))
+	}
+
+	eCopy := *e
+	silentE := (&eCopy).WithoutMagicProps()
+	silentE.EmitInt(context.Background(), event, nil, 0, metricType)
+
+	e.registeredEvents[event] = struct{}{}
+	return func(ctx context.Context, props map[string]interface{}) {
+		e.EmitInt(ctx, event, props, 1, metricType)
+	}
+}
+
+func (e *Emitter) Log(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})) t.LogEmitterFn {
+	if _, ok := e.registeredEvents[event]; ok {
+		panic(fmt.Sprintf("Event %s already registered", event))
+	}
+	eCopy := *e
+	silentE := (&eCopy).WithoutMagicProps()
+	silentE.EmitInt(context.Background(), event, nil, 0, t.COUNT)
+
+	e.registeredEvents[event] = struct{}{}
+	return func(ctx context.Context, props map[string]interface{}, format string, args ...interface{}) {
+		logfn(ctx, event, props, format, args...)
+	}
 }
 
 func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props map[string]interface{}) map[string]interface{} {
 	if props == nil {
 		props = make(map[string]interface{}, 5)
+	}
+	if props["__includes_magic_props"] != nil {
+		return props
 	}
 	p := props
 	if e.callback != nil || e.magicFilename || e.magicLineNo || e.magicFuncName || e.magicHostname {
@@ -94,25 +153,43 @@ func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props 
 		return p
 	}
 
-	_, thisFile, _, _ := runtime.Caller(0)
-	pc, file, line, ok := runtime.Caller(2)
-	if file == thisFile || !ok {
+	// Memoize the magic properties so we don't have to do this work every time
+	if details, ok := e.memoTable[event]; ok {
+		p["filename"] = details.filename
+		p["lineNo"] = details.lineNo
+		p["funcName"] = details.funcName
+		p["hostname"] = details.hostname
+		p["__includes_magic_props"] = true
 		return p
+	}
+
+	skip := 2
+
+	_, thisFile, _, _ := runtime.Caller(0)
+	pc, file, line, ok := runtime.Caller(skip)
+	// XXX: For some reason, when testing we skip 2, but elsewhere we seem to need to skip 3
+	for ok && file == thisFile {
+		skip += 1
+		pc, file, line, ok = runtime.Caller(skip)
 	}
 
 	if e.magicFilename {
 		p["filename"] = file
+		p["__includes_magic_props"] = true
 	}
 	if e.magicLineNo {
 		p["lineNo"] = line
+		p["__includes_magic_props"] = true
 	}
 	if e.magicFuncName {
 		p["funcName"] = runtime.FuncForPC(pc).Name()
+		p["__includes_magic_props"] = true
 	}
 	if e.magicHostname {
 		hostname, err := e.hostname_provider()
 		if err == nil {
 			p["hostname"] = hostname
+			p["__includes_magic_props"] = true
 		}
 	}
 
@@ -126,6 +203,7 @@ func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props 
 // Implement EmitterBackend in case we want to stack emitters
 func (e *Emitter) EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType t.MetricType) {
 	p := e.addMagicPropsToEvent(ctx, event, props)
+	delete(p, "__includes_magic_props")
 	for _, backend := range e.backends {
 		backend.EmitFloat(ctx, event, p, value, metricType)
 	}
@@ -133,6 +211,7 @@ func (e *Emitter) EmitFloat(ctx context.Context, event string, props map[string]
 
 func (e *Emitter) EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType t.MetricType) {
 	p := e.addMagicPropsToEvent(ctx, event, props)
+	delete(p, "__includes_magic_props")
 	for _, backend := range e.backends {
 		backend.EmitInt(ctx, event, p, value, metricType)
 	}
@@ -140,6 +219,7 @@ func (e *Emitter) EmitInt(ctx context.Context, event string, props map[string]in
 
 func (e *Emitter) EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType t.MetricType) {
 	p := e.addMagicPropsToEvent(ctx, event, props)
+	delete(p, "__includes_magic_props")
 	for _, backend := range e.backends {
 		backend.EmitDuration(ctx, event, p, value, metricType)
 	}
@@ -294,4 +374,41 @@ func (e *Emitter) DebugfContext(ctx context.Context, event string, props map[str
 
 func (e *Emitter) TracefContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {
 	e.TraceContext(ctx, event, props, fmt.Sprintf(format, args...))
+}
+
+type CompatAdapter struct {
+	emitter *Emitter
+}
+
+func (c *CompatAdapter) propsFromArgs(args ...interface{}) map[string]interface{} {
+	props := make(map[string]interface{})
+	for i := 0; i < len(args); i += 2 {
+		props[args[i].(string)] = args[i+1]
+	}
+	return props
+}
+
+// Implement ContextLoggerCompat so we can use our emitter as a legacy logger
+func (c *CompatAdapter) InfoContext(ctx context.Context, event string, msg string, args ...interface{}) {
+	c.emitter.InfoContext(ctx, event, c.propsFromArgs(args), msg)
+}
+
+func (c *CompatAdapter) WarnContext(ctx context.Context, event string, msg string, args ...interface{}) {
+	c.emitter.WarnContext(ctx, event, c.propsFromArgs(args), msg)
+}
+
+func (c *CompatAdapter) ErrorContext(ctx context.Context, event string, msg string, args ...interface{}) {
+	c.emitter.ErrorContext(ctx, event, c.propsFromArgs(args), msg)
+}
+
+func (c *CompatAdapter) FatalContext(ctx context.Context, event string, msg string, args ...interface{}) {
+	c.emitter.FatalContext(ctx, event, c.propsFromArgs(args), msg)
+}
+
+func (c *CompatAdapter) DebugContext(ctx context.Context, event string, msg string, args ...interface{}) {
+	c.emitter.DebugContext(ctx, event, c.propsFromArgs(args), msg)
+}
+
+func (c *CompatAdapter) TraceContext(ctx context.Context, event string, msg string, args ...interface{}) {
+	c.emitter.TraceContext(ctx, event, c.propsFromArgs(args), msg)
 }

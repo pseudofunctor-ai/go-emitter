@@ -24,6 +24,15 @@ type SimpleLoggerFmt interface {
 	Tracef(event string, props map[string]interface{}, format string, args ...interface{})
 }
 
+type ContextLoggerCompat interface {
+	InfoContext(ctx context.Context, event string, msg string, args ...interface{})
+	WarnContext(ctx context.Context, event string, msg string, args ...interface{})
+	ErrorContext(ctx context.Context, event string, msg string, args ...interface{})
+	FatalContext(ctx context.Context, event string, msg string, args ...interface{})
+	DebugContext(ctx context.Context, event string, msg string, args ...interface{})
+	TraceContext(ctx context.Context, event string, msg string, args ...interface{})
+}
+
 type ContextLogger interface {
 	InfoContext(ctx context.Context, event string, props map[string]interface{}, msg string)
 	WarnContext(ctx context.Context, event string, props map[string]interface{}, msg string)
@@ -40,6 +49,21 @@ type ContextLoggerFmt interface {
 	FatalfContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
 	DebugfContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
 	TracefContext(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})
+}
+
+type (
+	MetricEmitterFn func(ctx context.Context, props map[string]interface{})
+	LogEmitterFn    func(ctx context.Context, props map[string]interface{}, format string, args ...interface{})
+)
+
+type CombinedEmitter interface {
+	SimpleLogger
+	SimpleLoggerFmt
+	ContextLogger
+	ContextLoggerFmt
+	MetricsEmitter
+	Metric(event string, metricType MetricType) MetricEmitterFn
+	Log(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})) LogEmitterFn
 }
 
 type MetricType int
