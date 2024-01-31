@@ -385,8 +385,11 @@ func MakeCompatAdapter(eventName string, emitter t.ContextLogger) *CompatAdapter
 	return &CompatAdapter{eventName: eventName, emitter: emitter}
 }
 
-func (c *CompatAdapter) propsFromArgs(args ...interface{}) map[string]interface{} {
-	props := make(map[string]interface{})
+func (c *CompatAdapter) propsFromArgs(args []interface{}) map[string]interface{} {
+	props := make(map[string]interface{}, len(args)/2)
+	if len(args)%2 != 0 {
+		panic("Props must be an even number of arguments")
+	}
 	for i := 0; i < len(args); i += 2 {
 		props[args[i].(string)] = args[i+1]
 	}
