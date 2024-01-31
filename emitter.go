@@ -380,6 +380,10 @@ type CompatAdapter struct {
 	emitter *Emitter
 }
 
+func MakeCompatAdapter(emitter *Emitter) *CompatAdapter {
+	return &CompatAdapter{emitter: emitter}
+}
+
 func (c *CompatAdapter) propsFromArgs(args ...interface{}) map[string]interface{} {
 	props := make(map[string]interface{})
 	for i := 0; i < len(args); i += 2 {
