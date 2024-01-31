@@ -377,11 +377,12 @@ func (e *Emitter) TracefContext(ctx context.Context, event string, props map[str
 }
 
 type CompatAdapter struct {
-	emitter t.ContextLogger
+	emitter   t.ContextLogger
+	eventName string
 }
 
-func MakeCompatAdapter(emitter t.ContextLogger) *CompatAdapter {
-	return &CompatAdapter{emitter: emitter}
+func MakeCompatAdapter(eventName string, emitter t.ContextLogger) *CompatAdapter {
+	return &CompatAdapter{eventName: eventName, emitter: emitter}
 }
 
 func (c *CompatAdapter) propsFromArgs(args ...interface{}) map[string]interface{} {
@@ -393,26 +394,26 @@ func (c *CompatAdapter) propsFromArgs(args ...interface{}) map[string]interface{
 }
 
 // Implement ContextLoggerCompat so we can use our emitter as a legacy logger
-func (c *CompatAdapter) InfoContext(ctx context.Context, event string, msg string, args ...interface{}) {
-	c.emitter.InfoContext(ctx, event, c.propsFromArgs(args), msg)
+func (c *CompatAdapter) InfoContext(ctx context.Context, msg string, args ...interface{}) {
+	c.emitter.InfoContext(ctx, c.eventName, c.propsFromArgs(args), msg)
 }
 
-func (c *CompatAdapter) WarnContext(ctx context.Context, event string, msg string, args ...interface{}) {
-	c.emitter.WarnContext(ctx, event, c.propsFromArgs(args), msg)
+func (c *CompatAdapter) WarnContext(ctx context.Context, msg string, args ...interface{}) {
+	c.emitter.WarnContext(ctx, c.eventName, c.propsFromArgs(args), msg)
 }
 
-func (c *CompatAdapter) ErrorContext(ctx context.Context, event string, msg string, args ...interface{}) {
-	c.emitter.ErrorContext(ctx, event, c.propsFromArgs(args), msg)
+func (c *CompatAdapter) ErrorContext(ctx context.Context, msg string, args ...interface{}) {
+	c.emitter.ErrorContext(ctx, c.eventName, c.propsFromArgs(args), msg)
 }
 
-func (c *CompatAdapter) FatalContext(ctx context.Context, event string, msg string, args ...interface{}) {
-	c.emitter.FatalContext(ctx, event, c.propsFromArgs(args), msg)
+func (c *CompatAdapter) FatalContext(ctx context.Context, msg string, args ...interface{}) {
+	c.emitter.FatalContext(ctx, c.eventName, c.propsFromArgs(args), msg)
 }
 
-func (c *CompatAdapter) DebugContext(ctx context.Context, event string, msg string, args ...interface{}) {
-	c.emitter.DebugContext(ctx, event, c.propsFromArgs(args), msg)
+func (c *CompatAdapter) DebugContext(ctx context.Context, msg string, args ...interface{}) {
+	c.emitter.DebugContext(ctx, c.eventName, c.propsFromArgs(args), msg)
 }
 
-func (c *CompatAdapter) TraceContext(ctx context.Context, event string, msg string, args ...interface{}) {
-	c.emitter.TraceContext(ctx, event, c.propsFromArgs(args), msg)
+func (c *CompatAdapter) TraceContext(ctx context.Context, msg string, args ...interface{}) {
+	c.emitter.TraceContext(ctx, c.eventName, c.propsFromArgs(args), msg)
 }
