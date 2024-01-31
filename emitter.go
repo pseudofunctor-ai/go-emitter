@@ -377,10 +377,10 @@ func (e *Emitter) TracefContext(ctx context.Context, event string, props map[str
 }
 
 type CompatAdapter struct {
-	emitter *Emitter
+	emitter t.ContextLogger
 }
 
-func MakeCompatAdapter(emitter *Emitter) *CompatAdapter {
+func MakeCompatAdapter(emitter t.ContextLogger) *CompatAdapter {
 	return &CompatAdapter{emitter: emitter}
 }
 
