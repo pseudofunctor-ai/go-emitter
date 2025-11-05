@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+type CallSiteDetails struct {
+	Filename string
+	LineNo   int
+	FuncName string
+	Package  string
+}
+
 type SimpleLogger interface {
 	Info(event string, props map[string]interface{}, msg string)
 	Warn(event string, props map[string]interface{}, msg string)

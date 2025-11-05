@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	t "github.com/pseudofunctor-ai/go-emitter/types"
@@ -22,23 +23,26 @@ func (h *PassthroughHistogram) Observe(value float64) {
 	h.emitter.EmitFloat(h.ctx, h.event, h.props, value, t.HISTOGRAM)
 }
 
-type magicProps struct {
+type eventCallSiteProps struct {
 	hostname string
 	filename string
 	lineNo   int
 	funcName string
+	package_ string
 }
 
 type Emitter struct {
-	registeredEvents  map[string]struct{}
-	memoTable         map[string]magicProps
-	callback          func(context.Context, string, map[string]interface{})
-	hostname_provider func() (string, error)
-	backends          []t.EmitterBackend
-	magicHostname     bool
-	magicFilename     bool
-	magicLineNo       bool
-	magicFuncName     bool
+	registeredEvents    map[string]struct{}
+	memoTable           map[string]eventCallSiteProps
+	callback            func(context.Context, string, map[string]interface{})
+	hostname_provider   func() (string, error)
+	callsite_provider   func() t.CallSiteDetails
+	backends            []t.EmitterBackend
+	magicHostname       bool
+	magicFilename       bool
+	magicLineNo         bool
+	magicFuncName       bool
+	magicPackage        bool
 }
 
 type TimingEmitter[T any] struct {
@@ -49,17 +53,47 @@ func NewTimingEmitter[T any](emitter *Emitter) TimingEmitter[T] {
 	return TimingEmitter[T]{emitter: emitter}
 }
 
+func defaultCallsiteProvider() t.CallSiteDetails {
+	skip := 2
+	_, thisFile, _, _ := runtime.Caller(0)
+	pc, file, line, ok := runtime.Caller(skip)
+	// XXX: For some reason, when testing we skip 2, but elsewhere we seem to need to skip 3
+	for ok && file == thisFile {
+		skip += 1
+		pc, file, line, ok = runtime.Caller(skip)
+	}
+	funcName := runtime.FuncForPC(pc).Name()
+
+	// Extract package from function name
+	// Function names are like "github.com/user/package.FunctionName"
+	pkg := ""
+	if lastSlash := strings.LastIndex(funcName, "/"); lastSlash >= 0 {
+		if dot := strings.Index(funcName[lastSlash:], "."); dot >= 0 {
+			pkg = funcName[:lastSlash+dot]
+		}
+	}
+
+	return t.CallSiteDetails{
+		Filename: file,
+		LineNo:   line,
+		FuncName: funcName,
+		Package:  pkg,
+	}
+}
+
 func NewEmitter(backends ...t.EmitterBackend) *Emitter {
 	return &Emitter{
 		registeredEvents:  make(map[string]struct{}),
-		memoTable:         make(map[string]magicProps),
+		memoTable:         make(map[string]eventCallSiteProps),
 		backends:          backends,
 		magicHostname:     false,
 		magicFilename:     false,
 		magicLineNo:       false,
 		magicFuncName:     false,
+		magicPackage:      false,
 		callback:          nil,
 		hostname_provider: os.Hostname,
+		callsite_provider: defaultCallsiteProvider,
 	}
 }
 
@@ -70,6 +104,11 @@ func (e *Emitter) WithCallback(callback func(context.Context, string, map[string
 
 func (e *Emitter) WithHostnameProvider(hostname_provider func() (string, error)) *Emitter {
 	e.hostname_provider = hostname_provider
+	return e
+}
+
+func (e *Emitter) WithCallsiteProvider(callsite_provider func() t.CallSiteDetails) *Emitter {
+	e.callsite_provider = callsite_provider
 	return e
 }
 
@@ -98,16 +137,22 @@ func (e *Emitter) WithMagicFuncName() *Emitter {
 	return e
 }
 
+func (e *Emitter) WithMagicPackage() *Emitter {
+	e.magicPackage = true
+	return e
+}
+
 func (e *Emitter) WithoutMagicProps() *Emitter {
 	e.magicHostname = false
 	e.magicFilename = false
 	e.magicLineNo = false
 	e.magicFuncName = false
+	e.magicPackage = false
 	return e
 }
 
 func (e *Emitter) WithAllMagicProps() *Emitter {
-	return e.WithMagicHostname().WithMagicFilename().WithMagicLineNo().WithMagicFuncName()
+	return e.WithMagicHostname().WithMagicFilename().WithMagicLineNo().WithMagicFuncName().WithMagicPackage()
 }
 
 func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterFn {
@@ -139,62 +184,72 @@ func (e *Emitter) Log(event string, logfn func(ctx context.Context, event string
 	}
 }
 
-func (e *Emitter) addMagicPropsToEvent(ctx context.Context, event string, props map[string]interface{}) map[string]interface{} {
+// MetricFnCallsite is a decorator that captures the call site where a MetricEmitterFn is used
+// This is used by the generator to identify where metrics are being registered in the code
+func (e *Emitter) MetricFnCallsite(fn t.MetricEmitterFn) t.MetricEmitterFn {
+	// For runtime magic properties, this is a passthrough
+	// For static generation, the generator will track where this is called
+	return fn
+}
+
+// LogFnCallsite is a decorator that captures the call site where a LogEmitterFn is used
+// This is used by the generator to identify where log events are being registered in the code
+func (e *Emitter) LogFnCallsite(fn t.LogEmitterFn) t.LogEmitterFn {
+	// For runtime magic properties, this is a passthrough
+	// For static generation, the generator will track where this is called
+	return fn
+}
+
+func (e *Emitter) addMagicPropsToEvent(ctx context.Context, eventName string, props map[string]interface{}) map[string]interface{} {
 	if props == nil {
 		props = make(map[string]interface{}, 5)
 	}
-	if props["__includes_magic_props"] != nil {
+
+	// Check if we need to add any magic props or invoke callback
+	if e.callback == nil && !e.magicFilename && !e.magicLineNo && !e.magicFuncName && !e.magicHostname && !e.magicPackage {
 		return props
 	}
-	p := props
-	if e.callback != nil || e.magicFilename || e.magicLineNo || e.magicFuncName || e.magicHostname {
-		p = maps.Clone(props)
+
+	// Clone props to avoid modifying the original
+	p := maps.Clone(props)
+
+	// Get or compute the event call site props
+	var eventProps *eventCallSiteProps
+	if v, ok := e.memoTable[eventName]; ok {
+		eventProps = &v
 	} else {
-		return p
+		hostname, _ := e.hostname_provider()
+		callsite := e.callsite_provider()
+		v := eventCallSiteProps{
+			hostname: hostname,
+			filename: callsite.Filename,
+			lineNo:   callsite.LineNo,
+			funcName: callsite.FuncName,
+			package_: callsite.Package,
+		}
+		e.memoTable[eventName] = v
+		eventProps = &v
 	}
 
-	// Memoize the magic properties so we don't have to do this work every time
-	if details, ok := e.memoTable[event]; ok {
-		p["filename"] = details.filename
-		p["lineNo"] = details.lineNo
-		p["funcName"] = details.funcName
-		p["hostname"] = details.hostname
-		p["__includes_magic_props"] = true
-		return p
+	// Add magic props based on flags
+	if e.magicHostname && eventProps.hostname != "" {
+		p["hostname"] = eventProps.hostname
 	}
-
-	skip := 2
-
-	_, thisFile, _, _ := runtime.Caller(0)
-	pc, file, line, ok := runtime.Caller(skip)
-	// XXX: For some reason, when testing we skip 2, but elsewhere we seem to need to skip 3
-	for ok && file == thisFile {
-		skip += 1
-		pc, file, line, ok = runtime.Caller(skip)
-	}
-
 	if e.magicFilename {
-		p["filename"] = file
-		p["__includes_magic_props"] = true
+		p["filename"] = eventProps.filename
 	}
 	if e.magicLineNo {
-		p["lineNo"] = line
-		p["__includes_magic_props"] = true
+		p["lineNo"] = eventProps.lineNo
 	}
 	if e.magicFuncName {
-		p["funcName"] = runtime.FuncForPC(pc).Name()
-		p["__includes_magic_props"] = true
+		p["funcName"] = eventProps.funcName
 	}
-	if e.magicHostname {
-		hostname, err := e.hostname_provider()
-		if err == nil {
-			p["hostname"] = hostname
-			p["__includes_magic_props"] = true
-		}
+	if e.magicPackage {
+		p["package"] = eventProps.package_
 	}
 
 	if e.callback != nil {
-		e.callback(ctx, event, p)
+		e.callback(ctx, eventName, p)
 	}
 
 	return p
