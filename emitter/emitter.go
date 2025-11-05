@@ -32,17 +32,17 @@ type eventCallSiteProps struct {
 }
 
 type Emitter struct {
-	registeredEvents    map[string]struct{}
-	memoTable           map[string]eventCallSiteProps
-	callback            func(context.Context, string, map[string]interface{})
-	hostname_provider   func() (string, error)
-	callsite_provider   func(eventName string) t.CallSiteDetails
-	backends            []t.EmitterBackend
-	magicHostname       bool
-	magicFilename       bool
-	magicLineNo         bool
-	magicFuncName       bool
-	magicPackage        bool
+	registeredEvents  map[string]struct{}
+	memoTable         map[string]eventCallSiteProps
+	callback          func(context.Context, string, map[string]interface{})
+	hostname_provider func() (string, error)
+	callsite_provider func(eventName string) t.CallSiteDetails
+	backends          []t.EmitterBackend
+	magicHostname     bool
+	magicFilename     bool
+	magicLineNo       bool
+	magicFuncName     bool
+	magicPackage      bool
 }
 
 type TimingEmitter[T any] struct {
