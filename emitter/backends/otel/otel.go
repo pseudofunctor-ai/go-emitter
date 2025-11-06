@@ -48,14 +48,34 @@ func propsToAttributes(props map[string]interface{}) []attribute.KeyValue {
 		switch val := v.(type) {
 		case string:
 			attrs = append(attrs, attribute.String(k, val))
-		case int:
-			attrs = append(attrs, attribute.Int(k, val))
-		case int64:
-			attrs = append(attrs, attribute.Int64(k, val))
-		case float64:
-			attrs = append(attrs, attribute.Float64(k, val))
 		case bool:
 			attrs = append(attrs, attribute.Bool(k, val))
+		// All int flavors -> int64
+		case int:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case int8:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case int16:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case int32:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case int64:
+			attrs = append(attrs, attribute.Int64(k, val))
+		case uint:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case uint8:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case uint16:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case uint32:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		case uint64:
+			attrs = append(attrs, attribute.Int64(k, int64(val)))
+		// All float flavors -> float64
+		case float32:
+			attrs = append(attrs, attribute.Float64(k, float64(val)))
+		case float64:
+			attrs = append(attrs, attribute.Float64(k, val))
 		default:
 			// Fallback to string representation
 			attrs = append(attrs, attribute.String(k, fmt.Sprintf("%v", val)))
@@ -146,85 +166,103 @@ func (b *OtelBackend) EmitDuration(ctx context.Context, event string, props map[
 // Instrument cache getters/creators
 
 func (b *OtelBackend) getOrCreateInt64Counter(name string) (metric.Int64Counter, error) {
+	// First try to load
 	if val, ok := b.int64Counters.Load(name); ok {
 		return val.(metric.Int64Counter), nil
 	}
 
+	// Create new counter
 	counter, err := b.meter.Int64Counter(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.int64Counters.Store(name, counter)
-	return counter, nil
+	// Atomically store or get existing (if another goroutine created it first)
+	actual, _ := b.int64Counters.LoadOrStore(name, counter)
+	return actual.(metric.Int64Counter), nil
 }
 
 func (b *OtelBackend) getOrCreateFloat64Counter(name string) (metric.Float64Counter, error) {
+	// First try to load
 	if val, ok := b.float64Counters.Load(name); ok {
 		return val.(metric.Float64Counter), nil
 	}
 
+	// Create new counter
 	counter, err := b.meter.Float64Counter(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.float64Counters.Store(name, counter)
-	return counter, nil
+	// Atomically store or get existing (if another goroutine created it first)
+	actual, _ := b.float64Counters.LoadOrStore(name, counter)
+	return actual.(metric.Float64Counter), nil
 }
 
 func (b *OtelBackend) getOrCreateInt64Gauge(name string) (metric.Int64Gauge, error) {
+	// First try to load
 	if val, ok := b.int64Gauges.Load(name); ok {
 		return val.(metric.Int64Gauge), nil
 	}
 
+	// Create new gauge
 	gauge, err := b.meter.Int64Gauge(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.int64Gauges.Store(name, gauge)
-	return gauge, nil
+	// Atomically store or get existing (if another goroutine created it first)
+	actual, _ := b.int64Gauges.LoadOrStore(name, gauge)
+	return actual.(metric.Int64Gauge), nil
 }
 
 func (b *OtelBackend) getOrCreateFloat64Gauge(name string) (metric.Float64Gauge, error) {
+	// First try to load
 	if val, ok := b.float64Gauges.Load(name); ok {
 		return val.(metric.Float64Gauge), nil
 	}
 
+	// Create new gauge
 	gauge, err := b.meter.Float64Gauge(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.float64Gauges.Store(name, gauge)
-	return gauge, nil
+	// Atomically store or get existing (if another goroutine created it first)
+	actual, _ := b.float64Gauges.LoadOrStore(name, gauge)
+	return actual.(metric.Float64Gauge), nil
 }
 
 func (b *OtelBackend) getOrCreateInt64Histogram(name string) (metric.Int64Histogram, error) {
+	// First try to load
 	if val, ok := b.int64Histograms.Load(name); ok {
 		return val.(metric.Int64Histogram), nil
 	}
 
+	// Create new histogram
 	histogram, err := b.meter.Int64Histogram(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.int64Histograms.Store(name, histogram)
-	return histogram, nil
+	// Atomically store or get existing (if another goroutine created it first)
+	actual, _ := b.int64Histograms.LoadOrStore(name, histogram)
+	return actual.(metric.Int64Histogram), nil
 }
 
 func (b *OtelBackend) getOrCreateFloat64Histogram(name string) (metric.Float64Histogram, error) {
+	// First try to load
 	if val, ok := b.float64Histograms.Load(name); ok {
 		return val.(metric.Float64Histogram), nil
 	}
 
+	// Create new histogram
 	histogram, err := b.meter.Float64Histogram(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.float64Histograms.Store(name, histogram)
-	return histogram, nil
+	// Atomically store or get existing (if another goroutine created it first)
+	actual, _ := b.float64Histograms.LoadOrStore(name, histogram)
+	return actual.(metric.Float64Histogram), nil
 }
