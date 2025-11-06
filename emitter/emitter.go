@@ -31,18 +31,24 @@ type eventCallSiteProps struct {
 	package_ string
 }
 
+type eventMetadata struct {
+	metricType   t.MetricType
+	propertyKeys []string
+}
+
 type Emitter struct {
-	registeredEvents  map[string]struct{}
-	memoTable         map[string]eventCallSiteProps
-	callback          func(context.Context, string, map[string]interface{})
-	hostname_provider func() (string, error)
-	callsite_provider func(eventName string) t.CallSiteDetails
-	backends          []t.EmitterBackend
-	magicHostname     bool
-	magicFilename     bool
-	magicLineNo       bool
-	magicFuncName     bool
-	magicPackage      bool
+
+	registeredEvents    map[string]eventMetadata
+	memoTable           map[string]eventCallSiteProps
+	callback            func(context.Context, string, map[string]interface{})
+	hostname_provider   func() (string, error)
+	callsite_provider   func(eventName string) t.CallSiteDetails
+	backends            []t.EmitterBackend
+	magicHostname       bool
+	magicFilename       bool
+	magicLineNo         bool
+	magicFuncName       bool
+	magicPackage        bool
 }
 
 type TimingEmitter[T any] struct {
@@ -83,7 +89,7 @@ func defaultCallsiteProvider(eventName string) t.CallSiteDetails {
 
 func NewEmitter(backends ...t.EmitterBackend) *Emitter {
 	return &Emitter{
-		registeredEvents:  make(map[string]struct{}),
+		registeredEvents:  make(map[string]eventMetadata),
 		memoTable:         make(map[string]eventCallSiteProps),
 		backends:          backends,
 		magicHostname:     false,
@@ -155,6 +161,43 @@ func (e *Emitter) WithAllMagicProps() *Emitter {
 	return e.WithMagicHostname().WithMagicFilename().WithMagicLineNo().WithMagicFuncName().WithMagicPackage()
 }
 
+// WithStaticMetadata populates registeredEvents from statically generated metadata.
+// This is typically used with a generated CallSiteDetails map from the generator tool.
+// It extracts metric types and property keys from the static data.
+func (e *Emitter) WithStaticMetadata(staticData map[string]t.CallSiteDetails) *Emitter {
+	for eventName, details := range staticData {
+		// Parse metric type from string
+		var metricType t.MetricType
+		switch details.MetricType {
+		case "COUNT":
+			metricType = t.COUNT
+		case "GAUGE":
+			metricType = t.GAUGE
+		case "HISTOGRAM":
+			metricType = t.HISTOGRAM
+		case "TIMER":
+			metricType = t.TIMER
+		case "METER":
+			metricType = t.METER
+		case "SET":
+			metricType = t.SET
+		case "EVENT":
+			metricType = t.EVENT
+		default:
+			// If no metric type specified, skip registration
+			continue
+		}
+
+		// Register the event with metadata
+		e.registeredEvents[eventName] = eventMetadata{
+			metricType:   metricType,
+			propertyKeys: details.PropertyKeys,
+		}
+	}
+
+	return e
+}
+
 func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterFn {
 	if _, ok := e.registeredEvents[event]; ok {
 		panic(fmt.Sprintf("Event %s already registered", event))
@@ -164,7 +207,7 @@ func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterF
 	silentE := (&eCopy).WithoutMagicProps()
 	silentE.EmitInt(context.Background(), event, nil, 0, metricType)
 
-	e.registeredEvents[event] = struct{}{}
+	e.registeredEvents[event] = eventMetadata{metricType: metricType, propertyKeys: nil}
 	return func(ctx context.Context, props map[string]interface{}) {
 		e.EmitInt(ctx, event, props, 1, metricType)
 	}
@@ -178,8 +221,84 @@ func (e *Emitter) Log(event string, logfn func(ctx context.Context, event string
 	silentE := (&eCopy).WithoutMagicProps()
 	silentE.EmitInt(context.Background(), event, nil, 0, t.COUNT)
 
-	e.registeredEvents[event] = struct{}{}
+	e.registeredEvents[event] = eventMetadata{metricType: t.COUNT, propertyKeys: nil}
 	return func(ctx context.Context, props map[string]interface{}, format string, args ...interface{}) {
+		logfn(ctx, event, props, format, args...)
+	}
+}
+
+// MetricWithProps registers a metric with known property keys.
+// It emits a zero value with placeholder values for seeding backends like Prometheus.
+// The returned function validates that only expected property keys are used.
+func (e *Emitter) MetricWithProps(event string, metricType t.MetricType, propKeys []string) t.MetricEmitterFn {
+	if _, ok := e.registeredEvents[event]; ok {
+		panic(fmt.Sprintf("Event %s already registered", event))
+	}
+
+	// Create seed props with placeholder values
+	seedProps := make(map[string]interface{}, len(propKeys))
+	for _, key := range propKeys {
+		seedProps[key] = "*"
+	}
+
+	// Emit zero with seed props for backend initialization
+	eCopy := *e
+	silentE := (&eCopy).WithoutMagicProps()
+	silentE.EmitInt(context.Background(), event, seedProps, 0, metricType)
+
+	e.registeredEvents[event] = eventMetadata{metricType: metricType, propertyKeys: propKeys}
+
+	// Create a set for efficient lookup
+	propKeySet := make(map[string]struct{}, len(propKeys))
+	for _, key := range propKeys {
+		propKeySet[key] = struct{}{}
+	}
+
+	return func(ctx context.Context, props map[string]interface{}) {
+		// Validate prop keys
+		for key := range props {
+			if _, ok := propKeySet[key]; !ok {
+				panic(fmt.Sprintf("Unexpected property key '%s' for event '%s'. Expected keys: %v", key, event, propKeys))
+			}
+		}
+		e.EmitInt(ctx, event, props, 1, metricType)
+	}
+}
+
+// LogWithProps registers a log event with known property keys.
+// It emits a zero value with placeholder values for seeding backends.
+// The returned function validates that only expected property keys are used.
+func (e *Emitter) LogWithProps(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}), propKeys []string) t.LogEmitterFn {
+	if _, ok := e.registeredEvents[event]; ok {
+		panic(fmt.Sprintf("Event %s already registered", event))
+	}
+
+	// Create seed props with placeholder values
+	seedProps := make(map[string]interface{}, len(propKeys))
+	for _, key := range propKeys {
+		seedProps[key] = "*"
+	}
+
+	// Emit zero with seed props for backend initialization
+	eCopy := *e
+	silentE := (&eCopy).WithoutMagicProps()
+	silentE.EmitInt(context.Background(), event, seedProps, 0, t.COUNT)
+
+	e.registeredEvents[event] = eventMetadata{metricType: t.COUNT, propertyKeys: propKeys}
+
+	// Create a set for efficient lookup
+	propKeySet := make(map[string]struct{}, len(propKeys))
+	for _, key := range propKeys {
+		propKeySet[key] = struct{}{}
+	}
+
+	return func(ctx context.Context, props map[string]interface{}, format string, args ...interface{}) {
+		// Validate prop keys
+		for key := range props {
+			if _, ok := propKeySet[key]; !ok {
+				panic(fmt.Sprintf("Unexpected property key '%s' for log event '%s'. Expected keys: %v", key, event, propKeys))
+			}
+		}
 		logfn(ctx, event, props, format, args...)
 	}
 }
@@ -474,4 +593,22 @@ func (c *CompatAdapter) DebugContext(ctx context.Context, msg string, args ...in
 
 func (c *CompatAdapter) TraceContext(ctx context.Context, msg string, args ...interface{}) {
 	c.emitter.TraceContext(ctx, c.eventName, c.propsFromArgs(args), msg)
+}
+
+// GetManifest returns a list of all registered metrics with their types and property keys.
+// This can be used to generate documentation or publish as a JSON manifest.
+// Property keys use placeholder values ("*") to indicate dynamic dimensions.
+func (e *Emitter) GetManifest() []t.MetricManifestEntry {
+	manifest := make([]t.MetricManifestEntry, 0, len(e.registeredEvents))
+
+	for eventName, metadata := range e.registeredEvents {
+		manifest = append(manifest, t.MetricManifestEntry{
+			Name:         eventName,
+			MetricType:   metadata.metricType,
+			TypeString:   metadata.metricType.String(),
+			PropertyKeys: metadata.propertyKeys,
+		})
+	}
+
+	return manifest
 }

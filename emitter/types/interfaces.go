@@ -7,10 +7,12 @@ import (
 )
 
 type CallSiteDetails struct {
-	Filename string
-	LineNo   int
-	FuncName string
-	Package  string
+	Filename     string
+	LineNo       int
+	FuncName     string
+	Package      string
+	PropertyKeys []string
+	MetricType   string
 }
 
 type SimpleLogger interface {
@@ -85,6 +87,27 @@ const (
 	EVENT
 )
 
+func (m MetricType) String() string {
+	switch m {
+	case COUNT:
+		return "COUNT"
+	case GAUGE:
+		return "GAUGE"
+	case HISTOGRAM:
+		return "HISTOGRAM"
+	case TIMER:
+		return "TIMER"
+	case METER:
+		return "METER"
+	case SET:
+		return "SET"
+	case EVENT:
+		return "EVENT"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 type Histogram interface {
 	Observe(value float64)
 }
@@ -103,4 +126,12 @@ type EmitterBackend interface {
 	EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType MetricType)
 	EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType MetricType)
 	EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType MetricType)
+}
+
+// MetricManifestEntry represents a single metric in the manifest
+type MetricManifestEntry struct {
+	Name         string     `json:"name"`
+	MetricType   MetricType `json:"metric_type"`
+	TypeString   string     `json:"type_string"`
+	PropertyKeys []string   `json:"property_keys,omitempty"`
 }

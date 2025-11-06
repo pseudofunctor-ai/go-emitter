@@ -17,20 +17,20 @@ func init() {
 func DirectCalls() {
 	ctx := context.Background()
 
-	// Metric calls
-	em.Count(ctx, "direct_count", nil, 1)
-	em.Gauge(ctx, "direct_gauge", nil, 42.5)
+	// Metric calls with props
+	em.Count(ctx, "direct_count", map[string]interface{}{"environment": "prod", "region": "us-west"}, 1)
+	em.Gauge(ctx, "direct_gauge", map[string]interface{}{"host": "server1"}, 42.5)
 
-	// Logger calls
-	em.InfoContext(ctx, "direct_info_log", nil, "info message")
-	em.ErrorContext(ctx, "direct_error_log", nil, "error message")
+	// Logger calls with props
+	em.InfoContext(ctx, "direct_info_log", map[string]interface{}{"user": "alice", "action": "login"}, "info message")
+	em.ErrorContext(ctx, "direct_error_log", map[string]interface{}{"code": "E500"}, "error message")
 	em.DebugfContext(ctx, "direct_debugf_log", nil, "debug %s", "message")
 }
 
 // Test registered metrics
 var (
-	userLoginMetric  = em.Metric("user_login_metric", types.COUNT)
-	requestDuration  = em.Metric("request_duration", types.TIMER)
+	userLoginMetric  = em.MetricWithProps("user_login_metric", types.COUNT, []string{"user_id", "success"})
+	requestDuration  = em.MetricWithProps("request_duration", types.TIMER, []string{"endpoint", "method"})
 	activeUsers      = em.Metric("active_users", types.GAUGE)
 )
 
@@ -43,7 +43,7 @@ func RegisteredMetrics() {
 
 // Test registered logs
 var (
-	auditLog = em.Log("audit_log", em.InfofContext)
+	auditLog = em.LogWithProps("audit_log", em.InfofContext, []string{"action", "resource", "user"})
 	errorLog = em.Log("error_log", em.ErrorfContext)
 )
 
