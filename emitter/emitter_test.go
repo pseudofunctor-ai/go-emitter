@@ -668,4 +668,169 @@ var _ = Describe("Emitter", func() {
 			}).To(Panic())
 		})
 	})
+
+	Describe("MetricWithProps", func() {
+		It("Should register metric with property keys and emit seed value", func() {
+			// Expect seed emission with placeholder values
+			mockBackend.EXPECT().EmitInt(context.Background(), "api.request", map[string]interface{}{
+				"endpoint": "*",
+				"method":   "*",
+			}, int64(0), COUNT)
+
+			metricFn := emitter.MetricWithProps("api.request", COUNT, []string{"endpoint", "method"})
+
+			// Verify it's registered
+			_, exists := emitter.registeredEvents["api.request"]
+			Expect(exists).To(BeTrue())
+
+			// Emit with valid props
+			mockBackend.EXPECT().EmitInt(gomock.Any(), "api.request", map[string]interface{}{
+				"endpoint": "/users",
+				"method":   "GET",
+			}, int64(1), COUNT)
+
+			metricFn(context.Background(), map[string]interface{}{
+				"endpoint": "/users",
+				"method":   "GET",
+			})
+		})
+
+		It("Should panic when using unexpected property key", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+
+			metricFn := emitter.MetricWithProps("api.request", COUNT, []string{"endpoint"})
+
+			Expect(func() {
+				metricFn(context.Background(), map[string]interface{}{
+					"endpoint":   "/users",
+					"bad_key":    "value",
+				})
+			}).To(Panic())
+		})
+
+		It("Should allow subset of property keys", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+
+			metricFn := emitter.MetricWithProps("api.request", COUNT, []string{"endpoint", "method", "status"})
+
+			// Should not panic - using subset is fine
+			mockBackend.EXPECT().EmitInt(gomock.Any(), "api.request", map[string]interface{}{
+				"endpoint": "/users",
+			}, int64(1), COUNT)
+
+			metricFn(context.Background(), map[string]interface{}{
+				"endpoint": "/users",
+			})
+		})
+	})
+
+	Describe("LogWithProps", func() {
+		It("Should register log event with property keys and emit seed value", func() {
+			// Expect seed emission with placeholder values
+			mockBackend.EXPECT().EmitInt(context.Background(), "user.action", map[string]interface{}{
+				"user_id": "*",
+				"action":  "*",
+			}, int64(0), COUNT)
+
+			logFn := emitter.LogWithProps("user.action", emitter.InfofContext, []string{"user_id", "action"})
+
+			// Verify it's registered
+			_, exists := emitter.registeredEvents["user.action"]
+			Expect(exists).To(BeTrue())
+
+			// Emit with valid props
+			mockBackend.EXPECT().EmitInt(gomock.Any(), "user.action", gomock.Any(), int64(1), COUNT).Do(func(_ context.Context, _ string, props map[string]interface{}, _ int64, _ MetricType) {
+				Expect(props).To(HaveKeyWithValue("user_id", "123"))
+				Expect(props).To(HaveKeyWithValue("action", "login"))
+				Expect(props).To(HaveKeyWithValue("_message", "User logged in"))
+				Expect(props).To(HaveKeyWithValue("_logLevel", "INFO"))
+			})
+
+			logFn(context.Background(), map[string]interface{}{
+				"user_id": "123",
+				"action":  "login",
+			}, "User logged in")
+		})
+
+		It("Should panic when using unexpected property key", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+
+			logFn := emitter.LogWithProps("user.action", emitter.InfofContext, []string{"user_id"})
+
+			Expect(func() {
+				logFn(context.Background(), map[string]interface{}{
+					"user_id":  "123",
+					"bad_key": "value",
+				}, "test")
+			}).To(Panic())
+		})
+	})
+
+	Describe("GetManifest", func() {
+		It("Should return empty manifest for emitter with no registered events", func() {
+			manifest := emitter.GetManifest()
+			Expect(manifest).To(BeEmpty())
+		})
+
+		It("Should return manifest with registered metrics", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			emitter.Metric("counter.event", COUNT)
+			emitter.Metric("gauge.event", GAUGE)
+			emitter.MetricWithProps("histogram.event", HISTOGRAM, []string{"bucket", "tag"})
+
+			manifest := emitter.GetManifest()
+			Expect(manifest).To(HaveLen(3))
+
+			// Check counter
+			Expect(manifest).To(ContainElement(MetricManifestEntry{
+				Name:         "counter.event",
+				MetricType:   COUNT,
+				TypeString:   "COUNT",
+				PropertyKeys: nil,
+			}))
+
+			// Check gauge
+			Expect(manifest).To(ContainElement(MetricManifestEntry{
+				Name:         "gauge.event",
+				MetricType:   GAUGE,
+				TypeString:   "GAUGE",
+				PropertyKeys: nil,
+			}))
+
+			// Check histogram with props
+			Expect(manifest).To(ContainElement(MetricManifestEntry{
+				Name:         "histogram.event",
+				MetricType:   HISTOGRAM,
+				TypeString:   "HISTOGRAM",
+				PropertyKeys: []string{"bucket", "tag"},
+			}))
+		})
+
+		It("Should include log events in manifest", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			emitter.Log("log.event", emitter.InfofContext)
+			emitter.LogWithProps("log.event.props", emitter.WarnfContext, []string{"severity", "component"})
+
+			manifest := emitter.GetManifest()
+			Expect(manifest).To(HaveLen(2))
+
+			// Check log without props
+			Expect(manifest).To(ContainElement(MetricManifestEntry{
+				Name:         "log.event",
+				MetricType:   COUNT,
+				TypeString:   "COUNT",
+				PropertyKeys: nil,
+			}))
+
+			// Check log with props
+			Expect(manifest).To(ContainElement(MetricManifestEntry{
+				Name:         "log.event.props",
+				MetricType:   COUNT,
+				TypeString:   "COUNT",
+				PropertyKeys: []string{"severity", "component"},
+			}))
+		})
+	})
 })

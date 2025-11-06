@@ -19,11 +19,13 @@ type GeneratorConfig struct {
 }
 
 type CallSite struct {
-	EventName string
-	Filename  string
-	LineNo    int
-	FuncName  string
-	Package   string
+	EventName    string
+	Filename     string
+	LineNo       int
+	FuncName     string
+	Package      string
+	PropertyKeys []string
+	MetricType   string
 }
 
 // Generate is the main entry point for the generator
@@ -169,7 +171,15 @@ func (e *callSiteExtractor) extractDirectCall(call *ast.CallExpr, methodName str
 		return "", CallSite{}
 	}
 
-	return eventName, e.makeCallSite(call, eventName)
+	callsite := e.makeCallSite(call, eventName)
+
+	// Extract property keys from props argument
+	callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
+
+	// Extract metric type
+	callsite.MetricType = e.extractMetricType(call, methodName)
+
+	return eventName, callsite
 }
 
 // extractCallsiteDecorator extracts event name from *FnCallsite decorator calls
@@ -190,18 +200,24 @@ func (e *callSiteExtractor) extractCallsiteDecorator(call *ast.CallExpr, decorat
 		return "", CallSite{}
 	}
 
-	// Find the assignment/declaration
-	eventName := e.findEventNameFromDefinition(obj.Pos())
-	if eventName == "" {
+	// Find the assignment/declaration and extract full metadata
+	callsite := e.findCallSiteFromDefinition(obj.Pos())
+	if callsite.EventName == "" {
 		return "", CallSite{}
 	}
 
-	// Return the call site at the decorator location (not the definition location)
-	return eventName, e.makeCallSite(call, eventName)
+	// Update the call site location to the decorator (but keep the metadata from definition)
+	pos := e.pkg.Fset.Position(call.Pos())
+	funcName := e.findEnclosingFunc(call.Pos())
+	callsite.Filename = pos.Filename
+	callsite.LineNo = pos.Line
+	callsite.FuncName = funcName
+
+	return callsite.EventName, callsite
 }
 
-// findEventNameFromDefinition finds the event name from where a variable is defined
-func (e *callSiteExtractor) findEventNameFromDefinition(pos token.Pos) string {
+// findCallSiteFromDefinition finds the full callsite metadata from where a variable is defined
+func (e *callSiteExtractor) findCallSiteFromDefinition(pos token.Pos) CallSite {
 	// Find the file containing this position
 	var targetFile *ast.File
 	for _, file := range e.pkg.Syntax {
@@ -212,79 +228,113 @@ func (e *callSiteExtractor) findEventNameFromDefinition(pos token.Pos) string {
 	}
 
 	if targetFile == nil {
-		return ""
+		return CallSite{}
 	}
 
 	// Find the assignment or declaration at this position
-	var eventName string
+	var callsite CallSite
 	ast.Inspect(targetFile, func(n ast.Node) bool {
-		if eventName != "" {
+		if callsite.EventName != "" {
 			return false
 		}
 
 		switch node := n.(type) {
 		case *ast.AssignStmt:
 			if node.Pos() <= pos && pos <= node.End() {
-				eventName = e.extractEventNameFromAssignment(node)
+				callsite = e.extractCallSiteFromAssignment(node)
 			}
 		case *ast.ValueSpec:
 			if node.Pos() <= pos && pos <= node.End() {
-				eventName = e.extractEventNameFromValueSpec(node)
+				callsite = e.extractCallSiteFromValueSpec(node)
 			}
 		}
 
-		return eventName == ""
+		return callsite.EventName == ""
 	})
 
-	return eventName
+	return callsite
 }
 
-// extractEventNameFromAssignment extracts event name from an assignment like `foo := emitter.Metric("event_name", COUNT)`
-func (e *callSiteExtractor) extractEventNameFromAssignment(assign *ast.AssignStmt) string {
+// findEventNameFromDefinition finds the event name from where a variable is defined
+func (e *callSiteExtractor) findEventNameFromDefinition(pos token.Pos) string {
+	callsite := e.findCallSiteFromDefinition(pos)
+	return callsite.EventName
+}
+
+// extractCallSiteFromAssignment extracts full callsite from an assignment like `foo := emitter.Metric("event_name", COUNT)`
+func (e *callSiteExtractor) extractCallSiteFromAssignment(assign *ast.AssignStmt) CallSite {
 	if len(assign.Rhs) != 1 {
-		return ""
+		return CallSite{}
 	}
 
 	call, ok := assign.Rhs[0].(*ast.CallExpr)
 	if !ok {
-		return ""
+		return CallSite{}
 	}
 
 	selExpr, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return ""
+		return CallSite{}
 	}
 
 	methodName := selExpr.Sel.Name
-	if methodName == "Metric" || methodName == "Log" {
-		return e.extractEventNameArg(call, methodName)
+	if methodName == "Metric" || methodName == "Log" || methodName == "MetricWithProps" || methodName == "LogWithProps" {
+		eventName := e.extractEventNameArg(call, methodName)
+		if eventName == "" {
+			return CallSite{}
+		}
+
+		callsite := e.makeCallSite(call, eventName)
+		callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
+		callsite.MetricType = e.extractMetricType(call, methodName)
+		return callsite
 	}
 
-	return ""
+	return CallSite{}
 }
 
-// extractEventNameFromValueSpec extracts event name from a var declaration
-func (e *callSiteExtractor) extractEventNameFromValueSpec(spec *ast.ValueSpec) string {
+// extractEventNameFromAssignment extracts event name from an assignment like `foo := emitter.Metric("event_name", COUNT)`
+func (e *callSiteExtractor) extractEventNameFromAssignment(assign *ast.AssignStmt) string {
+	callsite := e.extractCallSiteFromAssignment(assign)
+	return callsite.EventName
+}
+
+// extractCallSiteFromValueSpec extracts full callsite from a var declaration
+func (e *callSiteExtractor) extractCallSiteFromValueSpec(spec *ast.ValueSpec) CallSite {
 	if len(spec.Values) != 1 {
-		return ""
+		return CallSite{}
 	}
 
 	call, ok := spec.Values[0].(*ast.CallExpr)
 	if !ok {
-		return ""
+		return CallSite{}
 	}
 
 	selExpr, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return ""
+		return CallSite{}
 	}
 
 	methodName := selExpr.Sel.Name
-	if methodName == "Metric" || methodName == "Log" {
-		return e.extractEventNameArg(call, methodName)
+	if methodName == "Metric" || methodName == "Log" || methodName == "MetricWithProps" || methodName == "LogWithProps" {
+		eventName := e.extractEventNameArg(call, methodName)
+		if eventName == "" {
+			return CallSite{}
+		}
+
+		callsite := e.makeCallSite(call, eventName)
+		callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
+		callsite.MetricType = e.extractMetricType(call, methodName)
+		return callsite
 	}
 
-	return ""
+	return CallSite{}
+}
+
+// extractEventNameFromValueSpec extracts event name from a var declaration
+func (e *callSiteExtractor) extractEventNameFromValueSpec(spec *ast.ValueSpec) string {
+	callsite := e.extractCallSiteFromValueSpec(spec)
+	return callsite.EventName
 }
 
 // extractEventNameArg extracts the event name string literal from a call expression
@@ -304,6 +354,141 @@ func (e *callSiteExtractor) extractEventNameArg(call *ast.CallExpr, methodName s
 
 	// Remove quotes from string literal
 	return strings.Trim(lit.Value, `"`)
+}
+
+// extractPropertyKeys extracts property keys from the props map argument or from WithProps calls
+func (e *callSiteExtractor) extractPropertyKeys(call *ast.CallExpr, methodName string) []string {
+	// For MetricWithProps and LogWithProps, extract from the propKeys argument
+	if methodName == "MetricWithProps" || methodName == "LogWithProps" {
+		return e.extractPropKeysFromWithPropsCall(call)
+	}
+
+	// For other methods, extract from the props map literal
+	propsIndex := getPropsArgIndex(methodName)
+	if propsIndex >= len(call.Args) {
+		return nil
+	}
+
+	propsArg := call.Args[propsIndex]
+
+	// Handle composite literal (map[string]interface{}{...})
+	compLit, ok := propsArg.(*ast.CompositeLit)
+	if !ok {
+		// Props might be a variable reference or nil - we can't extract keys statically
+		return nil
+	}
+
+	// Extract keys from the composite literal
+	keys := make(map[string]struct{})
+	for _, elt := range compLit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+
+		// Key should be a string literal or identifier
+		var keyStr string
+		switch key := kv.Key.(type) {
+		case *ast.BasicLit:
+			if key.Kind == token.STRING {
+				keyStr = strings.Trim(key.Value, `"`)
+			}
+		case *ast.Ident:
+			keyStr = key.Name
+		}
+
+		if keyStr != "" {
+			keys[keyStr] = struct{}{}
+		}
+	}
+
+	// Convert map to sorted slice
+	result := make([]string, 0, len(keys))
+	for key := range keys {
+		result = append(result, key)
+	}
+	sortStrings(result)
+
+	return result
+}
+
+// extractMetricType extracts the metric type from method calls
+func (e *callSiteExtractor) extractMetricType(call *ast.CallExpr, methodName string) string {
+	// For Metric() and MetricWithProps(), the metric type is an explicit argument
+	if methodName == "Metric" || methodName == "MetricWithProps" {
+		metricTypeIndex := 1 // Second argument
+		if metricTypeIndex >= len(call.Args) {
+			return ""
+		}
+
+		// The metric type should be an identifier like COUNT, GAUGE, etc.
+		if sel, ok := call.Args[metricTypeIndex].(*ast.SelectorExpr); ok {
+			return sel.Sel.Name
+		}
+		if ident, ok := call.Args[metricTypeIndex].(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+
+	// For direct method calls, infer from method name
+	return inferMetricTypeFromMethod(methodName)
+}
+
+// extractPropKeysFromWithPropsCall extracts property keys from MetricWithProps or LogWithProps
+// These methods have propKeys as a slice literal in the third argument (index 2)
+func (e *callSiteExtractor) extractPropKeysFromWithPropsCall(call *ast.CallExpr) []string {
+	// propKeys is the third argument (index 2) for MetricWithProps/LogWithProps
+	if len(call.Args) < 3 {
+		return nil
+	}
+
+	propsArg := call.Args[2]
+
+	// Handle slice literal []string{...}
+	compLit, ok := propsArg.(*ast.CompositeLit)
+	if !ok {
+		// Props might be a variable reference - we can't extract keys statically
+		return nil
+	}
+
+	// Extract string values from the slice literal
+	keys := make([]string, 0, len(compLit.Elts))
+	for _, elt := range compLit.Elts {
+		if lit, ok := elt.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			keys = append(keys, strings.Trim(lit.Value, `"`))
+		}
+	}
+
+	return keys
+}
+
+// inferMetricTypeFromMethod maps method names to metric types
+func inferMetricTypeFromMethod(methodName string) string {
+	switch methodName {
+	case "Count":
+		return "COUNT"
+	case "Gauge":
+		return "GAUGE"
+	case "Histogram":
+		return "HISTOGRAM"
+	case "Meter":
+		return "METER"
+	case "Set":
+		return "SET"
+	case "Event":
+		return "EVENT"
+	case "EmitInt", "EmitFloat", "EmitDuration":
+		// For Emit methods, we can't infer the type statically
+		return ""
+	case "Info", "Warn", "Error", "Fatal", "Debug", "Trace",
+		"Infof", "Warnf", "Errorf", "Fatalf", "Debugf", "Tracef",
+		"InfoContext", "WarnContext", "ErrorContext", "FatalContext", "DebugContext", "TraceContext",
+		"InfofContext", "WarnfContext", "ErrorfContext", "FatalfContext", "DebugfContext", "TracefContext",
+		"Log", "LogWithProps":
+		return "COUNT"
+	default:
+		return ""
+	}
 }
 
 // makeCallSite creates a CallSite from an AST node
@@ -355,7 +540,7 @@ func isEmitterMethod(name string) bool {
 		// Backend methods
 		"EmitInt", "EmitFloat", "EmitDuration",
 		// Registration methods
-		"Metric", "Log",
+		"Metric", "Log", "MetricWithProps", "LogWithProps",
 	}
 
 	for _, m := range methods {
@@ -385,6 +570,28 @@ func getEventNameArgIndex(methodName string) int {
 
 	// For Metric, Log, and non-context methods, event is first arg
 	return 0
+}
+
+// getPropsArgIndex returns the argument index for the props parameter
+func getPropsArgIndex(methodName string) int {
+	// Context methods: Count(ctx, event, props, value)
+	// Props is at index 2 for context methods
+	contextMethods := map[string]bool{
+		"Count": true, "Gauge": true, "Histogram": true, "Meter": true, "Set": true, "Event": true,
+		"InfoContext": true, "WarnContext": true, "ErrorContext": true, "FatalContext": true,
+		"DebugContext": true, "TraceContext": true,
+		"InfofContext": true, "WarnfContext": true, "ErrorfContext": true, "FatalfContext": true,
+		"DebugfContext": true, "TracefContext": true,
+		"EmitInt": true, "EmitFloat": true, "EmitDuration": true,
+	}
+
+	if contextMethods[methodName] {
+		return 2 // props is third arg (after context and event)
+	}
+
+	// Non-context methods: Info(event, props, msg)
+	// Props is at index 1
+	return 1
 }
 
 // writeOutputFile writes the generated Go code to the output file
@@ -417,10 +624,20 @@ func writeOutputFile(outputPath, pkgName, varName string, callsites map[string]C
 	for _, eventName := range eventNames {
 		cs := callsites[eventName]
 		w.writeLine("\t%q: {", eventName)
-		w.writeLine("\t\tFilename: %q,", cs.Filename)
-		w.writeLine("\t\tLineNo:   %d,", cs.LineNo)
-		w.writeLine("\t\tFuncName: %q,", cs.FuncName)
-		w.writeLine("\t\tPackage:  %q,", cs.Package)
+		w.writeLine("\t\tFilename:     %q,", cs.Filename)
+		w.writeLine("\t\tLineNo:       %d,", cs.LineNo)
+		w.writeLine("\t\tFuncName:     %q,", cs.FuncName)
+		w.writeLine("\t\tPackage:      %q,", cs.Package)
+		if len(cs.PropertyKeys) > 0 {
+			w.writeLine("\t\tPropertyKeys: []string{%s},", formatStringSlice(cs.PropertyKeys))
+		} else {
+			w.writeLine("\t\tPropertyKeys: nil,")
+		}
+		if cs.MetricType != "" {
+			w.writeLine("\t\tMetricType:   %q,", cs.MetricType)
+		} else {
+			w.writeLine("\t\tMetricType:   \"\",")
+		}
 		w.writeLine("\t},")
 	}
 
@@ -455,4 +672,16 @@ func sortStrings(strs []string) {
 		}
 		strs[j+1] = key
 	}
+}
+
+// formatStringSlice formats a string slice for code generation
+func formatStringSlice(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(strs))
+	for i, s := range strs {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	return strings.Join(quoted, ", ")
 }
