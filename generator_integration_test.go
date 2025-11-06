@@ -17,71 +17,99 @@ func TestGeneratorIntegration(t *testing.T) {
 			name: "testdata example package",
 			dir:  "testdata/example",
 			expected: map[string]CallSite{
-				// Direct calls
+				// Direct calls with property keys extracted from map literals
 				"direct_count": {
-					EventName: "direct_count",
-					LineNo:    21,
-					FuncName:  "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					EventName:    "direct_count",
+					LineNo:       21,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					PropertyKeys: []string{"environment", "region"},
+					MetricType:   "COUNT",
 				},
 				"direct_gauge": {
-					EventName: "direct_gauge",
-					LineNo:    22,
-					FuncName:  "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					EventName:    "direct_gauge",
+					LineNo:       22,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					PropertyKeys: []string{"host"},
+					MetricType:   "GAUGE",
 				},
 				"direct_info_log": {
-					EventName: "direct_info_log",
-					LineNo:    25,
-					FuncName:  "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					EventName:    "direct_info_log",
+					LineNo:       25,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					PropertyKeys: []string{"action", "user"},
+					MetricType:   "COUNT",
 				},
 				"direct_error_log": {
-					EventName: "direct_error_log",
-					LineNo:    26,
-					FuncName:  "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					EventName:    "direct_error_log",
+					LineNo:       26,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					PropertyKeys: []string{"code"},
+					MetricType:   "COUNT",
 				},
 				"direct_debugf_log": {
-					EventName: "direct_debugf_log",
-					LineNo:    27,
-					FuncName:  "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					EventName:    "direct_debugf_log",
+					LineNo:       27,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
-				// Registered metrics
+				// Registered metrics with property keys from MetricWithProps
 				"user_login_metric": {
-					EventName: "user_login_metric",
-					LineNo:    32,
+					EventName:    "user_login_metric",
+					LineNo:       32,
+					PropertyKeys: []string{"user_id", "success"},
+					MetricType:   "COUNT",
 				},
 				"request_duration": {
-					EventName: "request_duration",
-					LineNo:    33,
+					EventName:    "request_duration",
+					LineNo:       33,
+					PropertyKeys: []string{"endpoint", "method"},
+					MetricType:   "TIMER",
 				},
 				"active_users": {
-					EventName: "active_users",
-					LineNo:    34,
+					EventName:    "active_users",
+					LineNo:       34,
+					PropertyKeys: nil,
+					MetricType:   "GAUGE",
 				},
-				// Registered logs
+				// Registered logs with property keys from LogWithProps
 				"audit_log": {
-					EventName: "audit_log",
-					LineNo:    46,
+					EventName:    "audit_log",
+					LineNo:       46,
+					PropertyKeys: []string{"action", "resource", "user"},
+					MetricType:   "COUNT",
 				},
 				"error_log": {
-					EventName: "error_log",
-					LineNo:    47,
+					EventName:    "error_log",
+					LineNo:       47,
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
 				// Inline decorated
 				"decorated_metric": {
-					EventName: "decorated_metric",
-					LineNo:    58,
+					EventName:    "decorated_metric",
+					LineNo:       58,
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
 				"decorated_log": {
-					EventName: "decorated_log",
-					LineNo:    59,
+					EventName:    "decorated_log",
+					LineNo:       59,
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
 				// Indirect decoration - should use decorator location, not definition
 				"cache_hit_metric": {
-					EventName: "cache_hit_metric",
-					LineNo:    77, // This is where MetricFnCallsite is called
+					EventName:    "cache_hit_metric",
+					LineNo:       77, // This is where MetricFnCallsite is called
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
 				"auth_failure_log": {
-					EventName: "auth_failure_log",
-					LineNo:    80, // This is where LogFnCallsite is called
+					EventName:    "auth_failure_log",
+					LineNo:       80, // This is where LogFnCallsite is called
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
 			},
 		},
@@ -136,6 +164,22 @@ func TestGeneratorIntegration(t *testing.T) {
 
 				if expectedSite.FuncName != "" && actualSite.FuncName != expectedSite.FuncName {
 					t.Errorf("event %q: expected FuncName %q, got %q", eventName, expectedSite.FuncName, actualSite.FuncName)
+				}
+
+				if expectedSite.MetricType != "" && actualSite.MetricType != expectedSite.MetricType {
+					t.Errorf("event %q: expected MetricType %q, got %q", eventName, expectedSite.MetricType, actualSite.MetricType)
+				}
+
+				// Compare property keys
+				if len(actualSite.PropertyKeys) != len(expectedSite.PropertyKeys) {
+					t.Errorf("event %q: expected PropertyKeys %v, got %v", eventName, expectedSite.PropertyKeys, actualSite.PropertyKeys)
+					continue
+				}
+				for i := range expectedSite.PropertyKeys {
+					if actualSite.PropertyKeys[i] != expectedSite.PropertyKeys[i] {
+						t.Errorf("event %q: expected PropertyKeys %v, got %v", eventName, expectedSite.PropertyKeys, actualSite.PropertyKeys)
+						break
+					}
 				}
 			}
 		})
