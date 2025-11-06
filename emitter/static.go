@@ -6,12 +6,13 @@ import t "github.com/pseudofunctor-ai/go-emitter/emitter/types"
 // This eliminates the runtime overhead of runtime.Caller() by using pre-generated call site details.
 //
 // Usage:
+//
 //  1. Generate call site details using emitter-gen:
 //     emitter-gen -o emitter_callsites.go -var emitterCallSiteDetails ./path/to/package
 //
 //  2. Create an emitter with the static provider:
 //     emitter := NewEmitter(backends...).
-//         WithCallsiteProvider(NewStaticCallsiteProvider(emitterCallSiteDetails))
+//     WithCallsiteProvider(NewStaticCallsiteProvider(emitterCallSiteDetails))
 //
 // If an event name is not found in the map, an empty CallSiteDetails is returned.
 // Consider logging this as an error or falling back to defaultCallsiteProvider.
@@ -31,6 +32,7 @@ func NewStaticCallsiteProvider(callsites map[string]t.CallSiteDetails) func(even
 // table with the static call sites.
 //
 // Usage:
+//
 //  1. Generate call site details using emitter-gen:
 //     emitter-gen -o emitter_callsites.go -var emitterCallSiteDetails ./path/to/package
 //

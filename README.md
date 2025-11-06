@@ -284,7 +284,30 @@ func main() {
 
 - **`backends/statsd`**: Emit metrics to StatsD-compatible servers (DataDog, etc.)
 - **`backends/log`**: Emit to structured loggers (slog-compatible)
+- **`backends/otel`**: Emit metrics to OpenTelemetry (see example below)
 - **`backends/dummy`**: In-memory backend for testing
+
+#### OpenTelemetry Example
+
+```go
+import (
+    sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+    "github.com/pseudofunctor-ai/go-emitter/emitter"
+    "github.com/pseudofunctor-ai/go-emitter/emitter/backends/otel"
+)
+
+// Setup OpenTelemetry
+reader := sdkmetric.NewPeriodicReader(exporter)
+mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+meter := mp.Meter("my-app")
+
+// Create emitter with OpenTelemetry backend
+otelBackend := otel.NewOtelBackend(meter)
+em := emitter.NewEmitter(otelBackend)
+
+// Use normally
+em.Count(ctx, "requests.total", map[string]interface{}{"method": "GET"}, 1)
+```
 
 ### Custom Backends
 

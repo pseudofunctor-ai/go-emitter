@@ -566,10 +566,12 @@ var _ = Describe("Emitter", func() {
 
 		It("Should panic when registering duplicate log event", func() {
 			mockBackend.EXPECT().EmitInt(gomock.Any(), "duplicate", map[string]interface{}{}, int64(0), COUNT)
-			emitter.Log("duplicate", func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {})
+			emitter.Log("duplicate", func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {
+			})
 
 			Expect(func() {
-				emitter.Log("duplicate", func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {})
+				emitter.Log("duplicate", func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {
+				})
 			}).To(Panic())
 		})
 	})

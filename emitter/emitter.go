@@ -37,6 +37,7 @@ type eventMetadata struct {
 }
 
 type Emitter struct {
+
 	registeredEvents    map[string]eventMetadata
 	memoTable           map[string]eventCallSiteProps
 	callback            func(context.Context, string, map[string]interface{})

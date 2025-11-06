@@ -183,13 +183,13 @@ func TestGetEventNameArgIndex(t *testing.T) {
 		method   string
 		expected int
 	}{
-		{"Count", 1},         // context methods have event at index 1
-		{"Gauge", 1},         // context methods have event at index 1
-		{"InfoContext", 1},   // context methods have event at index 1
-		{"EmitInt", 1},       // context methods have event at index 1
-		{"Info", 0},          // non-context methods have event at index 0
-		{"Metric", 0},        // registration methods have event at index 0
-		{"Log", 0},           // registration methods have event at index 0
+		{"Count", 1},       // context methods have event at index 1
+		{"Gauge", 1},       // context methods have event at index 1
+		{"InfoContext", 1}, // context methods have event at index 1
+		{"EmitInt", 1},     // context methods have event at index 1
+		{"Info", 0},        // non-context methods have event at index 0
+		{"Metric", 0},      // registration methods have event at index 0
+		{"Log", 0},         // registration methods have event at index 0
 	}
 
 	for _, tt := range tests {
