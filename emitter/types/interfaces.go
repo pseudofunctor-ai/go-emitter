@@ -61,7 +61,7 @@ type ContextLoggerFmt interface {
 }
 
 type (
-	MetricEmitterFn func(ctx context.Context, props map[string]interface{})
+	MetricEmitterFn func(ctx context.Context, props map[string]interface{}, value ...interface{})
 	LogEmitterFn    func(ctx context.Context, props map[string]interface{}, format string, args ...interface{})
 )
 
@@ -72,7 +72,13 @@ type CombinedEmitter interface {
 	ContextLoggerFmt
 	MetricsEmitter
 	Metric(event string, metricType MetricType) MetricEmitterFn
+	MetricWithProps(event string, metricType MetricType, propKeys []string) MetricEmitterFn
 	Log(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})) LogEmitterFn
+	LogWithProps(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}), propKeys []string) LogEmitterFn
+  NewSubEmitter() CombinedEmitter
+  WithStaticMetadata(staticData map[string]CallSiteDetails) CombinedEmitter
+  MetricFnCallsite(fn MetricEmitterFn) MetricEmitterFn
+  LogFnCallsite(fn LogEmitterFn) LogEmitterFn
 }
 
 type MetricType int
