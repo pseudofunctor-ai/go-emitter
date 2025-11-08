@@ -219,6 +219,11 @@ func (e *callSiteExtractor) extractCallbackInvocation(call *ast.CallExpr) (strin
 		return e.extractCallbackFromSelector(call, selExpr)
 	}
 
+	// Try index expression invocation (e.g., slice[0](...) or m["key"](...))
+	if indexExpr, ok := call.Fun.(*ast.IndexExpr); ok {
+		return e.extractCallbackFromIndex(call, indexExpr)
+	}
+
 	return "", CallSite{}
 }
 
@@ -257,6 +262,473 @@ func (e *callSiteExtractor) extractCallbackFromSelector(call *ast.CallExpr, selE
 		PropertyKeys: callsite.PropertyKeys,
 		MetricType:   callsite.MetricType,
 	}
+}
+
+// extractCallbackFromIndex handles callback invocations via array/slice/map index (e.g., slice[0](...) or m["key"](...))
+func (e *callSiteExtractor) extractCallbackFromIndex(call *ast.CallExpr, indexExpr *ast.IndexExpr) (string, CallSite) {
+	pos := e.pkg.Fset.Position(call.Pos())
+	var funcName string
+
+	// Check the type of the indexed expression
+	tv, ok := e.pkg.TypesInfo.Types[indexExpr]
+	if !ok {
+		return "", CallSite{}
+	}
+
+	// Verify the result is a callback type
+	if !e.isCallbackType(tv.Type) {
+		return "", CallSite{}
+	}
+
+	// Get the identifier being indexed (the slice/map variable)
+	switch x := indexExpr.X.(type) {
+	case *ast.Ident:
+		// Look up where this variable was defined
+		obj := e.pkg.TypesInfo.Uses[x]
+		if obj == nil {
+			return "", CallSite{}
+		}
+
+		// Find where this variable is initialized and check if it's from a function call or composite literal
+		funcName, isFromFunction := e.findVariableInitFunction(obj.Pos())
+		if isFromFunction {
+			// Handle as function result
+			callsite := e.findCallbackInFunctionReturn(funcName, indexExpr.Index)
+			if callsite.EventName == "" {
+				return "", CallSite{}
+			}
+
+			// Update the callsite to reflect this invocation location
+			pos = e.pkg.Fset.Position(call.Pos())
+			funcName = e.findEnclosingFunc(call.Pos())
+
+			return callsite.EventName, CallSite{
+				EventName:    callsite.EventName,
+				Filename:     pos.Filename,
+				LineNo:       pos.Line,
+				FuncName:     funcName,
+				Package:      e.pkg.PkgPath,
+				PropertyKeys: callsite.PropertyKeys,
+				MetricType:   callsite.MetricType,
+			}
+		}
+
+		// Find the initialization of this slice/map from a composite literal
+		callsite := e.findCallbackInCollection(obj.Pos(), indexExpr.Index)
+		if callsite.EventName == "" {
+			return "", CallSite{}
+		}
+
+		// Update the callsite to reflect this invocation location
+		pos = e.pkg.Fset.Position(call.Pos())
+		funcName = e.findEnclosingFunc(call.Pos())
+
+		return callsite.EventName, CallSite{
+			EventName:    callsite.EventName,
+			Filename:     pos.Filename,
+			LineNo:       pos.Line,
+			FuncName:     funcName,
+			Package:      e.pkg.PkgPath,
+			PropertyKeys: callsite.PropertyKeys,
+			MetricType:   callsite.MetricType,
+		}
+
+	case *ast.SelectorExpr:
+		// Handle struct field arrays like obj.callbacks[0]()
+		// We need to trace where this struct field was initialized
+
+		fieldName := x.Sel.Name
+
+		// Try to find the struct type and field initialization
+		callsite := e.findCallbackInStructFieldArray(fieldName, indexExpr.Index)
+		if callsite.EventName == "" {
+			return "", CallSite{}
+		}
+
+		// Update the callsite to reflect this invocation location
+		pos = e.pkg.Fset.Position(call.Pos())
+		funcName = e.findEnclosingFunc(call.Pos())
+
+		return callsite.EventName, CallSite{
+			EventName:    callsite.EventName,
+			Filename:     pos.Filename,
+			LineNo:       pos.Line,
+			FuncName:     funcName,
+			Package:      e.pkg.PkgPath,
+			PropertyKeys: callsite.PropertyKeys,
+			MetricType:   callsite.MetricType,
+		}
+
+	case *ast.CallExpr:
+		// Handle function call results like emittersInSlice(em)[0]
+		// We need to find the function and analyze its return value
+		return e.extractCallbackFromIndexedFunctionResult(call, indexExpr, x)
+	default:
+		return "", CallSite{}
+	}
+}
+
+// extractCallbackFromIndexedFunctionResult handles cases like emittersInSlice(em)[0](...)
+func (e *callSiteExtractor) extractCallbackFromIndexedFunctionResult(call *ast.CallExpr, indexExpr *ast.IndexExpr, funcCall *ast.CallExpr) (string, CallSite) {
+	// Get the function being called
+	var funcIdent *ast.Ident
+	if selExpr, ok := funcCall.Fun.(*ast.SelectorExpr); ok {
+		funcIdent = selExpr.Sel
+	} else if ident, ok := funcCall.Fun.(*ast.Ident); ok {
+		funcIdent = ident
+	} else {
+		return "", CallSite{}
+	}
+
+	// Find the function definition
+	callsite := e.findCallbackInFunctionReturn(funcIdent.Name, indexExpr.Index)
+	if callsite.EventName == "" {
+		return "", CallSite{}
+	}
+
+	// Update the callsite to reflect this invocation location
+	pos := e.pkg.Fset.Position(call.Pos())
+	funcName := e.findEnclosingFunc(call.Pos())
+
+	return callsite.EventName, CallSite{
+		EventName:    callsite.EventName,
+		Filename:     pos.Filename,
+		LineNo:       pos.Line,
+		FuncName:     funcName,
+		Package:      e.pkg.PkgPath,
+		PropertyKeys: callsite.PropertyKeys,
+		MetricType:   callsite.MetricType,
+	}
+}
+
+// findCallbackInCollection finds the callback at a specific index in a slice/array or key in a map
+func (e *callSiteExtractor) findCallbackInCollection(defPos token.Pos, indexExpr ast.Expr) CallSite {
+	// Find the file containing this definition
+	var targetFile *ast.File
+	for _, file := range e.pkg.Syntax {
+		if e.pkg.Fset.Position(file.Pos()).Filename == e.pkg.Fset.Position(defPos).Filename {
+			targetFile = file
+			break
+		}
+	}
+
+	if targetFile == nil {
+		return CallSite{}
+	}
+
+	// Extract the index value
+	var index int
+	var mapKey string
+	isMapLookup := false
+
+	switch idx := indexExpr.(type) {
+	case *ast.BasicLit:
+		if idx.Kind == token.INT {
+			fmt.Sscanf(idx.Value, "%d", &index)
+		} else if idx.Kind == token.STRING {
+			mapKey = strings.Trim(idx.Value, `"`)
+			isMapLookup = true
+		}
+	default:
+		// Can't handle dynamic indices
+		return CallSite{}
+	}
+
+	// Find the assignment/declaration
+	var result CallSite
+	ast.Inspect(targetFile, func(n ast.Node) bool {
+		if result.EventName != "" {
+			return false
+		}
+
+		switch node := n.(type) {
+		case *ast.AssignStmt:
+			if node.Pos() <= defPos && defPos <= node.End() {
+				result = e.extractCallbackFromCollectionAssignment(node, index, mapKey, isMapLookup)
+			}
+		case *ast.ValueSpec:
+			if node.Pos() <= defPos && defPos <= node.End() {
+				result = e.extractCallbackFromCollectionValueSpec(node, index, mapKey, isMapLookup)
+			}
+		}
+
+		return result.EventName == ""
+	})
+
+	return result
+}
+
+// findVariableInitFunction checks if a variable is initialized from a function call
+// Returns (functionName, true) if initialized from a function call, ("", false) otherwise
+func (e *callSiteExtractor) findVariableInitFunction(varPos token.Pos) (string, bool) {
+	// Find the file containing this variable definition
+	var targetFile *ast.File
+	for _, file := range e.pkg.Syntax {
+		if e.pkg.Fset.Position(file.Pos()).Filename == e.pkg.Fset.Position(varPos).Filename {
+			targetFile = file
+			break
+		}
+	}
+
+	if targetFile == nil {
+		return "", false
+	}
+
+	var funcName string
+	var found bool
+
+	ast.Inspect(targetFile, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+
+		switch node := n.(type) {
+		case *ast.AssignStmt:
+			// Check if this assignment contains our variable
+			if node.Pos() <= varPos && varPos <= node.End() {
+				// Check if RHS is a function call
+				if len(node.Rhs) == 1 {
+					if callExpr, ok := node.Rhs[0].(*ast.CallExpr); ok {
+						// Extract function name
+						funcName = e.extractFunctionName(callExpr)
+						if funcName != "" {
+							found = true
+							return false
+						}
+					}
+				}
+			}
+		case *ast.ValueSpec:
+			// Check if this value spec contains our variable
+			if node.Pos() <= varPos && varPos <= node.End() {
+				// Check if value is a function call
+				if len(node.Values) == 1 {
+					if callExpr, ok := node.Values[0].(*ast.CallExpr); ok {
+						// Extract function name
+						funcName = e.extractFunctionName(callExpr)
+						if funcName != "" {
+							found = true
+							return false
+						}
+					}
+				}
+			}
+		}
+
+		return true
+	})
+
+	return funcName, found
+}
+
+// extractFunctionName extracts the function name from a call expression
+func (e *callSiteExtractor) extractFunctionName(callExpr *ast.CallExpr) string {
+	switch fun := callExpr.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	default:
+		return ""
+	}
+}
+
+// findCallbackInFunctionReturn finds a callback in a function's return statement
+func (e *callSiteExtractor) findCallbackInFunctionReturn(funcName string, indexExpr ast.Expr) CallSite {
+	// Extract the index value
+	var index int
+	var mapKey string
+	isMapLookup := false
+
+	switch idx := indexExpr.(type) {
+	case *ast.BasicLit:
+		if idx.Kind == token.INT {
+			fmt.Sscanf(idx.Value, "%d", &index)
+		} else if idx.Kind == token.STRING {
+			mapKey = strings.Trim(idx.Value, `"`)
+			isMapLookup = true
+		}
+	default:
+		return CallSite{}
+	}
+
+	// Search for the function definition
+	for _, file := range e.pkg.Syntax {
+		var result CallSite
+		ast.Inspect(file, func(n ast.Node) bool {
+			if result.EventName != "" {
+				return false
+			}
+
+			if funcDecl, ok := n.(*ast.FuncDecl); ok && funcDecl.Name.Name == funcName {
+				// Look for return statements
+				ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
+					if result.EventName != "" {
+						return false
+					}
+
+					if retStmt, ok := n.(*ast.ReturnStmt); ok && len(retStmt.Results) > 0 {
+						// Check if it's a composite literal (slice or map)
+						if compLit, ok := retStmt.Results[0].(*ast.CompositeLit); ok {
+							result = e.extractCallbackFromCompositeLiteral(compLit, index, mapKey, isMapLookup)
+						}
+					}
+					return result.EventName == ""
+				})
+			}
+
+			return result.EventName == ""
+		})
+
+		if result.EventName != "" {
+			return result
+		}
+	}
+
+	return CallSite{}
+}
+
+// extractCallbackFromCollectionAssignment extracts callback from slice/map assignment
+func (e *callSiteExtractor) extractCallbackFromCollectionAssignment(assign *ast.AssignStmt, index int, mapKey string, isMapLookup bool) CallSite {
+	if len(assign.Rhs) != 1 {
+		return CallSite{}
+	}
+
+	compLit, ok := assign.Rhs[0].(*ast.CompositeLit)
+	if !ok {
+		return CallSite{}
+	}
+
+	return e.extractCallbackFromCompositeLiteral(compLit, index, mapKey, isMapLookup)
+}
+
+// extractCallbackFromCollectionValueSpec extracts callback from slice/map var declaration
+func (e *callSiteExtractor) extractCallbackFromCollectionValueSpec(spec *ast.ValueSpec, index int, mapKey string, isMapLookup bool) CallSite {
+	if len(spec.Values) != 1 {
+		return CallSite{}
+	}
+
+	compLit, ok := spec.Values[0].(*ast.CompositeLit)
+	if !ok {
+		return CallSite{}
+	}
+
+	return e.extractCallbackFromCompositeLiteral(compLit, index, mapKey, isMapLookup)
+}
+
+// extractCallbackFromCompositeLiteral extracts a callback from a composite literal (slice/map)
+func (e *callSiteExtractor) extractCallbackFromCompositeLiteral(compLit *ast.CompositeLit, index int, mapKey string, isMapLookup bool) CallSite {
+	if isMapLookup {
+		// Map lookup by key
+		for _, elt := range compLit.Elts {
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				// Check if the key matches
+				if lit, ok := kv.Key.(*ast.BasicLit); ok {
+					if lit.Kind == token.STRING && strings.Trim(lit.Value, `"`) == mapKey {
+						// Found the matching key
+						if callExpr, ok := kv.Value.(*ast.CallExpr); ok {
+							return e.extractCallbackFromCallExpr(callExpr)
+						}
+					}
+				}
+			}
+		}
+	} else {
+		// Array/slice lookup by index
+		if index < len(compLit.Elts) {
+			elt := compLit.Elts[index]
+			if callExpr, ok := elt.(*ast.CallExpr); ok {
+				return e.extractCallbackFromCallExpr(callExpr)
+			}
+		}
+	}
+
+	return CallSite{}
+}
+
+// extractCallbackFromCallExpr extracts callback metadata from a call expression
+func (e *callSiteExtractor) extractCallbackFromCallExpr(callExpr *ast.CallExpr) CallSite {
+	selExpr, ok := callExpr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return CallSite{}
+	}
+
+	methodName := selExpr.Sel.Name
+	if methodName == "Metric" || methodName == "MetricWithProps" ||
+		methodName == "Log" || methodName == "LogWithProps" {
+		eventName := e.extractEventNameArg(callExpr, methodName)
+		if eventName != "" {
+			callsite := e.makeCallSite(callExpr, eventName)
+			callsite.PropertyKeys = e.extractPropertyKeys(callExpr, methodName)
+			callsite.MetricType = e.extractMetricType(callExpr, methodName)
+			return callsite
+		}
+	}
+
+	return CallSite{}
+}
+
+// findCallbackInStructFieldArray finds a callback in a struct field that's an array/slice/map
+func (e *callSiteExtractor) findCallbackInStructFieldArray(fieldName string, indexExpr ast.Expr) CallSite {
+	// Extract the index value
+	var index int
+	var mapKey string
+	isMapLookup := false
+
+	switch idx := indexExpr.(type) {
+	case *ast.BasicLit:
+		if idx.Kind == token.INT {
+			fmt.Sscanf(idx.Value, "%d", &index)
+		} else if idx.Kind == token.STRING {
+			mapKey = strings.Trim(idx.Value, `"`)
+			isMapLookup = true
+		}
+	default:
+		// Can't handle dynamic indices
+		return CallSite{}
+	}
+
+	// Search through all files in the package for struct field initializations
+	for _, file := range e.pkg.Syntax {
+		var result CallSite
+		ast.Inspect(file, func(n ast.Node) bool {
+			if result.EventName != "" {
+				return false
+			}
+
+			// Look for composite literals (struct initialization)
+			if compLit, ok := n.(*ast.CompositeLit); ok {
+				for _, elt := range compLit.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						// Check if the key matches our field name
+						if ident, ok := kv.Key.(*ast.Ident); ok && ident.Name == fieldName {
+							// Check if the value is a composite literal (array/slice/map)
+							if arrayLit, ok := kv.Value.(*ast.CompositeLit); ok {
+								result = e.extractCallbackFromCompositeLiteral(arrayLit, index, mapKey, isMapLookup)
+								return false
+							}
+							// Check if the value is a function call
+							if callExpr, ok := kv.Value.(*ast.CallExpr); ok {
+								funcName := e.extractFunctionName(callExpr)
+								if funcName != "" {
+									result = e.findCallbackInFunctionReturn(funcName, indexExpr)
+									return false
+								}
+							}
+						}
+					}
+				}
+			}
+
+			return true
+		})
+
+		if result.EventName != "" {
+			return result
+		}
+	}
+
+	return CallSite{}
 }
 
 // isCallbackType checks if a type is MetricEmitterFn or LogEmitterFn
@@ -654,6 +1126,9 @@ func (e *callSiteExtractor) extractPropKeysFromWithPropsCall(call *ast.CallExpr)
 			keys = append(keys, strings.Trim(lit.Value, `"`))
 		}
 	}
+
+	// Sort for stable output
+	sortStrings(keys)
 
 	return keys
 }

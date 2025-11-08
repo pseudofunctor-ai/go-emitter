@@ -25,7 +25,7 @@ func TestCallSiteBehavior(t *testing.T) {
 					EventName:    "user_login_metric",
 					LineNo:       47,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
-					PropertyKeys: []string{"user_id", "success"},
+					PropertyKeys: []string{"success", "user_id"},
 					MetricType:   "COUNT",
 				},
 				"request_duration": {
@@ -134,6 +134,32 @@ func TestCallSiteBehavior(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:        "callbacks in arrays and maps",
+			description: "Callbacks stored in slices/arrays and maps should be detected when invoked via index",
+			dir:         "testdata/example",
+			expected: map[string]CallSite{
+				"array_event1": {
+					EventName:    "array_event1",
+					LineNo:       155,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInArrays",
+					MetricType:   "COUNT",
+				},
+				"array_event2": {
+					EventName:    "array_event2",
+					LineNo:       156,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInArrays",
+					PropertyKeys: []string{"duration", "size"},
+					MetricType:   "HISTOGRAM",
+				},
+				"map_event1": {
+					EventName:    "map_event1",
+					LineNo:       165,
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInMaps",
+					MetricType:   "COUNT",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -148,6 +174,14 @@ func TestCallSiteBehavior(t *testing.T) {
 			callsites, err := extractCallSites(pkg)
 			if err != nil {
 				t.Fatalf("failed to extract callsites: %v", err)
+			}
+
+			// Debug: print all found callsites for this test
+			if len(callsites) > 0 {
+				t.Logf("Found %d callsites:", len(callsites))
+				for name, cs := range callsites {
+					t.Logf("  %q: line %d, func %q", name, cs.LineNo, cs.FuncName)
+				}
 			}
 
 			// Check expected callsites

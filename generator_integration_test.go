@@ -58,7 +58,7 @@ func TestGeneratorIntegration(t *testing.T) {
 					EventName:    "user_login_metric",
 					LineNo:       47, // Line where callback is invoked
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
-					PropertyKeys: []string{"user_id", "success"},
+					PropertyKeys: []string{"success", "user_id"},
 					MetricType:   "COUNT",
 				},
 				"request_duration": {
@@ -149,6 +149,50 @@ func TestGeneratorIntegration(t *testing.T) {
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersDefinedInAnotherCompilationUnit",
 					PropertyKeys: []string{"metric1", "metric2"},
 					MetricType:   "GAUGE",
+				},
+				// Callbacks in arrays/slices
+				"array_event1": {
+					EventName:    "array_event1",
+					LineNo:       155, // Line where slice[0] is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInArrays",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"array_event2": {
+					EventName:    "array_event2",
+					LineNo:       156, // Line where slice[1] is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInArrays",
+					PropertyKeys: []string{"duration", "size"},
+					MetricType:   "HISTOGRAM",
+				},
+				"array_event3": {
+					EventName:    "array_event3",
+					LineNo:       157, // Line where slice[2] is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInArrays",
+					PropertyKeys: nil,
+					MetricType:   "GAUGE",
+				},
+				// Callbacks in maps
+				"map_event1": {
+					EventName:    "map_event1",
+					LineNo:       165, // Line where m["info"] is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInMaps",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"map_event2": {
+					EventName:    "map_event2",
+					LineNo:       166, // Line where m["warn"] is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInMaps",
+					PropertyKeys: []string{"component", "severity"},
+					MetricType:   "COUNT",
+				},
+				"map_event3": {
+					EventName:    "map_event3",
+					LineNo:       167, // Line where m["error"] is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersInMaps",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
 				},
 			},
 		},

@@ -146,3 +146,23 @@ func EmittersDefinedInAnotherCompilationUnit() {
   tem.event2(context.Background(), map[string]interface{}{"metric1": "value1", "metric2": "value2"}, 100)
   tem.event3.Time(context.Background(), "timed_event", map[string]interface{}{"Hello": "World"}, func() int { time.Sleep(1 * time.Millisecond); return 0 })
 }
+
+func EmittersInArrays() {
+  ctx := context.Background()
+  slice := emittersInSlice(em)
+
+  // Access via index
+  slice[0](ctx, nil)
+  slice[1](ctx, map[string]interface{}{"size": 100, "duration": 50})
+  slice[2](ctx, map[string]interface{}{"value": 42})
+}
+
+func EmittersInMaps() {
+  ctx := context.Background()
+  m := emittersInMap(em)
+
+  // Access via key
+  m["info"](ctx, nil, "Info message: %s", "test")
+  m["warn"](ctx, map[string]interface{}{"severity": "high", "component": "auth"}, "Warning: %s", "failure")
+  m["error"](ctx, nil, "Error occurred: %v", "timeout")
+}
