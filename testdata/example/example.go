@@ -2,6 +2,9 @@ package example
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/pseudofunctor-ai/go-emitter/emitter"
 	"github.com/pseudofunctor-ai/go-emitter/emitter/types"
@@ -54,15 +57,17 @@ func RegisteredLogs() {
 }
 
 // Test callsite decorators - inline decoration
+// Define the callbacks first (these should NOT generate callsite entries)
 var (
-	decoratedMetric = em.MetricFnCallsite(em.Metric("decorated_metric", types.COUNT))
-	decoratedLog    = em.LogFnCallsite(em.Log("decorated_log", em.InfofContext))
+	decoratedMetric = em.Metric("decorated_metric", types.COUNT)
+	decoratedLog    = em.Log("decorated_log", em.InfofContext)
 )
 
 func DecoratedFunctions() {
 	ctx := context.Background()
-	decoratedMetric(ctx, nil)
-	decoratedLog(ctx, map[string]interface{}{"level": "info"}, "This is a %s", "test")
+	// These MetricFnCallsite/LogFnCallsite calls SHOULD generate the callsite entries
+	em.MetricFnCallsite(decoratedMetric)(ctx, nil)
+	em.LogFnCallsite(decoratedLog)(ctx, map[string]interface{}{"level": "info"}, "This is a %s", "test")
 }
 
 // Test indirect decoration - define symbols separately, decorate at point of use
@@ -79,4 +84,53 @@ func IndirectlyDecoratedFunctions() {
 
 	decoratedAuthFailure := em.LogFnCallsite(authFailureLog)
 	decoratedAuthFailure(ctx, map[string]interface{}{"user": "alice"}, "Failed login attempt from %s", "192.168.1.1")
+}
+
+// Test indirect decoration with property keys
+var bloomFilterReset = em.MetricWithProps("bloom_filter_reset", types.COUNT, []string{"density", "service_count"})
+var criticalConfabulation = em.LogWithProps("critical_confabulation", em.ErrorfContext, []string{"confabulacity"})
+
+func IndirectlyDecoratedFunctionsWithProps() {
+	ctx := context.Background()
+
+	// Apply decorators HERE to mark THIS location as the call site
+	// This is the pattern for use in wrappers or callbacks
+	decoratedBloomFilter := em.MetricFnCallsite(bloomFilterReset)
+	decoratedBloomFilter(ctx, map[string]interface{}(nil))
+
+	decoratedConfabulation := em.LogFnCallsite(criticalConfabulation)
+	decoratedConfabulation(ctx, map[string]interface{}(nil), "Critically excessive confabulation from %s", "192.168.1.1")
+}
+
+// FakeLogger is NOT an emitter - it just happens to have methods with the same names
+type FakeLogger struct{}
+
+func (FakeLogger) Info(msg string)                                                              {}
+func (FakeLogger) Count(ctx context.Context, name string, props map[string]interface{}, n int) {}
+func (FakeLogger) Gauge(ctx context.Context, name string, props map[string]interface{}, v float64) {
+}
+
+// NonEmitterCalls demonstrates calls that should NOT be picked up by the generator
+func NonEmitterCalls() {
+	ctx := context.Background()
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// These fmt.Errorf calls should NOT be detected as emitter calls
+	// even though they have method names that match (Error, Errorf, etc.)
+	_ = fmt.Errorf("error with code: %s", "E404")
+	_ = fmt.Errorf("database error: %v", "connection failed")
+
+	// These slog calls should NOT be detected
+	// even though they have similar method signatures (Info, Error, Debug, etc.)
+	logger.Info("user logged in", "user", "alice", "action", "login")
+	logger.Error("database error", "code", "E500")
+	logger.Debug("debug message", "key", "value")
+	logger.InfoContext(ctx, "context log", "user", "bob")
+	logger.ErrorContext(ctx, "context error", "code", "E404")
+
+	// FakeLogger calls that share method names with emitters
+	fake := FakeLogger{}
+	fake.Info("should not be picked up")
+	fake.Count(ctx, "not_an_emitter_count", nil, 1)
+	fake.Gauge(ctx, "not_an_emitter_gauge", nil, 42.0)
 }

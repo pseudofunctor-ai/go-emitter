@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -118,25 +120,102 @@ func (e *callSiteExtractor) Visit(node ast.Node) ast.Visitor {
 		return e
 	}
 
-	// Check if this is an emitter method call
+	// First check if this is a callback invocation (calling a variable that holds a MetricEmitterFn/LogEmitterFn)
+	if eventName, callsite := e.extractCallbackInvocation(callExpr); eventName != "" {
+		// This is a direct callback invocation - record it
+		e.recordCallsite(eventName, callsite, false)
+		return e
+	}
+
+	// Check if this is an emitter method call (em.Count, em.Metric, etc.)
 	eventName, callsite, isDecorator := e.extractFromCall(callExpr)
 	if eventName == "" {
 		return e
 	}
 
-	// Check for duplicate event names
+	// Only record callsites for:
+	// 1. Decorators (*FnCallsite)
+	// 2. Direct emitter method calls (em.Count, em.InfoContext, etc.) - NOT em.Metric/em.Log
+	if isDecorator {
+		e.recordCallsite(eventName, callsite, true)
+	} else {
+		// Check if this is a registration method (Metric, MetricWithProps, Log, LogWithProps)
+		// These should NOT generate callsites - only their invocations should
+		methodName := e.getMethodName(callExpr)
+		if !isRegistrationMethod(methodName) {
+			// This is a direct emitter call like em.Count() - record it
+			e.recordCallsite(eventName, callsite, false)
+		}
+	}
+
+	return e
+}
+
+// recordCallsite records a callsite, handling duplicates appropriately
+func (e *callSiteExtractor) recordCallsite(eventName string, callsite CallSite, isDecorator bool) {
 	if existing, found := e.callsites[eventName]; found {
 		// Allow decorators to override existing call sites
 		if !isDecorator {
 			e.err = fmt.Errorf("duplicate event name %q: already defined at %s:%d, found again at %s:%d",
 				eventName, existing.Filename, existing.LineNo, callsite.Filename, callsite.LineNo)
-			return nil
+			return
 		}
 		// Decorator overrides the existing call site
 	}
 
 	e.callsites[eventName] = callsite
-	return e
+}
+
+// getMethodName extracts the method name from a call expression
+func (e *callSiteExtractor) getMethodName(call *ast.CallExpr) string {
+	selExpr, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	return selExpr.Sel.Name
+}
+
+// isRegistrationMethod returns true if the method creates a callback (Metric, Log, etc.)
+func isRegistrationMethod(methodName string) bool {
+	return methodName == "Metric" || methodName == "MetricWithProps" ||
+		methodName == "Log" || methodName == "LogWithProps"
+}
+
+// extractCallbackInvocation detects when a registered callback (MetricEmitterFn/LogEmitterFn) is being invoked
+// Returns: eventName, callsite (empty strings if not a callback invocation)
+func (e *callSiteExtractor) extractCallbackInvocation(call *ast.CallExpr) (string, CallSite) {
+	// Check if the function being called is an identifier (a variable)
+	ident, ok := call.Fun.(*ast.Ident)
+	if !ok {
+		return "", CallSite{}
+	}
+
+	// Look up the identifier in the type info to see if it's a registered callback
+	obj := e.pkg.TypesInfo.Uses[ident]
+	if obj == nil {
+		return "", CallSite{}
+	}
+
+	// Check if this identifier refers to a variable that was assigned from Metric/Log
+	// We need to find where this variable was defined and extract the event name
+	callsite := e.findCallSiteFromDefinition(obj.Pos())
+	if callsite.EventName == "" {
+		return "", CallSite{}
+	}
+
+	// Update the callsite to reflect this invocation location, not the definition
+	pos := e.pkg.Fset.Position(call.Pos())
+	funcName := e.findEnclosingFunc(call.Pos())
+
+	return callsite.EventName, CallSite{
+		EventName:    callsite.EventName,
+		Filename:     pos.Filename,
+		LineNo:       pos.Line,
+		FuncName:     funcName,
+		Package:      e.pkg.PkgPath,
+		PropertyKeys: callsite.PropertyKeys,
+		MetricType:   callsite.MetricType,
+	}
 }
 
 // extractFromCall extracts event name and call site from a function call
@@ -148,6 +227,11 @@ func (e *callSiteExtractor) extractFromCall(call *ast.CallExpr) (string, CallSit
 	}
 
 	methodName := selExpr.Sel.Name
+
+	// Verify this is actually an emitter method call by checking the receiver type
+	if !e.isEmitterReceiver(selExpr.X) {
+		return "", CallSite{}, false
+	}
 
 	// Handle direct emitter calls with event parameter
 	if isEmitterMethod(methodName) {
@@ -507,6 +591,44 @@ func (e *callSiteExtractor) makeCallSite(node ast.Node, eventName string) CallSi
 	}
 }
 
+// isEmitterReceiver checks if the given expression refers to an emitter.Emitter type
+func (e *callSiteExtractor) isEmitterReceiver(expr ast.Expr) bool {
+	// Get the type of the receiver expression
+	tv, ok := e.pkg.TypesInfo.Types[expr]
+	if !ok {
+		// If we don't have type info, we can't verify - skip this call
+		return false
+	}
+
+	typ := tv.Type
+
+	// Check if it's a pointer type (*Emitter)
+	ptr, ok := typ.(*types.Pointer)
+	if ok {
+		typ = ptr.Elem()
+	}
+
+	// Get the named type
+	named, ok := typ.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	// Check if it's from the emitter package and is named "Emitter"
+	obj := named.Obj()
+	if obj == nil {
+		return false
+	}
+
+	pkg := obj.Pkg()
+	if pkg == nil {
+		return false
+	}
+
+	// Check if this is github.com/pseudofunctor-ai/go-emitter/emitter.Emitter
+	return pkg.Path() == "github.com/pseudofunctor-ai/go-emitter/emitter" && obj.Name() == "Emitter"
+}
+
 // findEnclosingFunc finds the name of the function enclosing the given position
 func (e *callSiteExtractor) findEnclosingFunc(pos token.Pos) string {
 	for _, file := range e.pkg.Syntax {
@@ -614,12 +736,14 @@ func writeOutputFile(outputPath, pkgName, varName string, callsites map[string]C
 	w.writeLine("")
 	w.writeLine("var %s = map[string]types.CallSiteDetails{", varName)
 
-	// Sort event names for deterministic output
+	// Sort event names by filename, then by line number for deterministic, readable output
 	eventNames := make([]string, 0, len(callsites))
 	for eventName := range callsites {
 		eventNames = append(eventNames, eventName)
 	}
-	sortStrings(eventNames)
+
+	// Sort by filename first, then by line number
+	sortCallsites(eventNames, callsites)
 
 	for _, eventName := range eventNames {
 		cs := callsites[eventName]
@@ -659,6 +783,16 @@ func (w *codeWriter) writeLine(format string, args ...interface{}) {
 
 	line := fmt.Sprintf(format, args...)
 	_, w.err = fmt.Fprintf(w.file, "%s\n", line)
+}
+
+// sortCallsites sorts event names by filename first, then by line number
+func sortCallsites(eventNames []string, callsites map[string]CallSite) {
+	sort.Slice(eventNames, func(i, j int) bool {
+		if callsites[eventNames[i]].Filename == callsites[eventNames[j]].Filename {
+			return callsites[eventNames[i]].LineNo < callsites[eventNames[j]].LineNo
+		}
+		return callsites[eventNames[i]].Filename < callsites[eventNames[j]].Filename
+	})
 }
 
 // sortStrings is a simple insertion sort for string slices

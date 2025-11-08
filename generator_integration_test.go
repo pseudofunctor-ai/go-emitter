@@ -20,95 +20,119 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Direct calls with property keys extracted from map literals
 				"direct_count": {
 					EventName:    "direct_count",
-					LineNo:       21,
+					LineNo:       24,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"environment", "region"},
 					MetricType:   "COUNT",
 				},
 				"direct_gauge": {
 					EventName:    "direct_gauge",
-					LineNo:       22,
+					LineNo:       25,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"host"},
 					MetricType:   "GAUGE",
 				},
 				"direct_info_log": {
 					EventName:    "direct_info_log",
-					LineNo:       25,
+					LineNo:       28,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"action", "user"},
 					MetricType:   "COUNT",
 				},
 				"direct_error_log": {
 					EventName:    "direct_error_log",
-					LineNo:       26,
+					LineNo:       29,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"code"},
 					MetricType:   "COUNT",
 				},
 				"direct_debugf_log": {
 					EventName:    "direct_debugf_log",
-					LineNo:       27,
+					LineNo:       30,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
-				// Registered metrics with property keys from MetricWithProps
+				// Registered metrics - recorded at INVOCATION site, not definition
 				"user_login_metric": {
 					EventName:    "user_login_metric",
-					LineNo:       32,
+					LineNo:       42, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: []string{"user_id", "success"},
 					MetricType:   "COUNT",
 				},
 				"request_duration": {
 					EventName:    "request_duration",
-					LineNo:       33,
+					LineNo:       43, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: []string{"endpoint", "method"},
 					MetricType:   "TIMER",
 				},
 				"active_users": {
 					EventName:    "active_users",
-					LineNo:       34,
+					LineNo:       44, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: nil,
 					MetricType:   "GAUGE",
 				},
-				// Registered logs with property keys from LogWithProps
+				// Registered logs - recorded at INVOCATION site, not definition
 				"audit_log": {
 					EventName:    "audit_log",
-					LineNo:       46,
+					LineNo:       55, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredLogs",
 					PropertyKeys: []string{"action", "resource", "user"},
 					MetricType:   "COUNT",
 				},
 				"error_log": {
 					EventName:    "error_log",
-					LineNo:       47,
+					LineNo:       56, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredLogs",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
-				// Inline decorated
+				// Inline decorated - recorded at *FnCallsite invocation
 				"decorated_metric": {
 					EventName:    "decorated_metric",
-					LineNo:       58,
+					LineNo:       69, // Line where MetricFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
 				"decorated_log": {
 					EventName:    "decorated_log",
-					LineNo:       59,
+					LineNo:       70, // Line where LogFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
-				// Indirect decoration - should use decorator location, not definition
+				// Indirect decoration - recorded at *FnCallsite invocation
 				"cache_hit_metric": {
 					EventName:    "cache_hit_metric",
-					LineNo:       77, // This is where MetricFnCallsite is called
+					LineNo:       82, // Line where MetricFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
 				"auth_failure_log": {
 					EventName:    "auth_failure_log",
-					LineNo:       80, // This is where LogFnCallsite is called
+					LineNo:       85, // Line where LogFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctions",
 					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				// Indirect decoration with props - recorded at *FnCallsite invocation
+				"bloom_filter_reset": {
+					EventName:    "bloom_filter_reset",
+					LineNo:       98, // Line where MetricFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctionsWithProps",
+					PropertyKeys: []string{"density", "service_count"},
+					MetricType:   "COUNT",
+				},
+				"critical_confabulation": {
+					EventName:    "critical_confabulation",
+					LineNo:       101, // Line where LogFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctionsWithProps",
+					PropertyKeys: []string{"confabulacity"},
 					MetricType:   "COUNT",
 				},
 			},
@@ -137,6 +161,27 @@ func TestGeneratorIntegration(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("failed to extract callsites: %v", err)
+			}
+
+			// First, check that we don't have any unexpected callsites (non-emitter calls)
+			unexpectedEvents := []string{
+				// These should NOT be picked up - they're not emitter calls
+				"error with code: %s",       // fmt.Errorf
+				"database error: %v",        // fmt.Errorf
+				"user logged in",            // slog.Info
+				"database error",            // slog.Error
+				"debug message",             // slog.Debug
+				"context log",               // slog.InfoContext
+				"context error",             // slog.ErrorContext
+				"should not be picked up",  // FakeLogger.Info
+				"not_an_emitter_count",      // FakeLogger.Count
+				"not_an_emitter_gauge",      // FakeLogger.Gauge
+			}
+
+			for _, unexpected := range unexpectedEvents {
+				if _, found := callsites[unexpected]; found {
+					t.Errorf("UNEXPECTED: found non-emitter call %q in callsites (should have been filtered out)", unexpected)
+				}
 			}
 
 			if len(callsites) != len(tt.expected) {

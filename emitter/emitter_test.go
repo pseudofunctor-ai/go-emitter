@@ -835,4 +835,164 @@ var _ = Describe("Emitter", func() {
 			}))
 		})
 	})
+
+	Describe("NewSubEmitter", func() {
+		It("Should create a sub-emitter with fresh registeredEvents and memoTable", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			// Register an event in parent
+			emitter.Metric("parent.event", COUNT)
+			Expect(emitter.registeredEvents).To(HaveLen(1))
+
+			// Create sub-emitter
+			subEmitter := emitter.NewSubEmitter()
+
+			// Sub-emitter should have fresh maps
+			Expect(subEmitter.registeredEvents).To(BeEmpty())
+			Expect(subEmitter.memoTable).To(BeEmpty())
+
+			// Parent should still have its registered event
+			Expect(emitter.registeredEvents).To(HaveLen(1))
+		})
+
+		It("Should inherit all configuration from parent", func() {
+			customCallback := func(ctx context.Context, event string, props map[string]interface{}) {}
+			customHostnameProvider := func() (string, error) { return "test-host", nil }
+			customCallsiteProvider := func(eventName string) CallSiteDetails {
+				return CallSiteDetails{Filename: "test.go", LineNo: 42}
+			}
+
+			// Configure parent
+			parent := NewEmitter(mockBackend).
+				WithCallback(customCallback).
+				WithHostnameProvider(customHostnameProvider).
+				WithCallsiteProvider(customCallsiteProvider).
+				WithMagicHostname().
+				WithMagicFilename().
+				WithMagicLineNo().
+				WithMagicFuncName().
+				WithMagicPackage()
+
+			// Create sub-emitter
+			sub := parent.NewSubEmitter()
+
+			// Check all flags are inherited
+			Expect(sub.magicHostname).To(Equal(parent.magicHostname))
+			Expect(sub.magicFilename).To(Equal(parent.magicFilename))
+			Expect(sub.magicLineNo).To(Equal(parent.magicLineNo))
+			Expect(sub.magicFuncName).To(Equal(parent.magicFuncName))
+			Expect(sub.magicPackage).To(Equal(parent.magicPackage))
+
+			// Verify providers are inherited by checking they return expected values
+			hostname, _ := sub.hostname_provider()
+			Expect(hostname).To(Equal("test-host"))
+
+			callsite := sub.callsite_provider("test")
+			Expect(callsite.Filename).To(Equal("test.go"))
+			Expect(callsite.LineNo).To(Equal(42))
+		})
+
+		It("Should copy backends slice independently", func() {
+			mockBackend2 := mocks.NewMockEmitterBackend(ctrl)
+			parent := NewEmitter(mockBackend)
+
+			// Create sub-emitter
+			sub := parent.NewSubEmitter()
+
+			// Both should have same backend initially
+			Expect(sub.backends).To(HaveLen(1))
+
+			// Add backend to sub - should not affect parent
+			sub.WithBackend(mockBackend2)
+			Expect(sub.backends).To(HaveLen(2))
+			Expect(parent.backends).To(HaveLen(1))
+
+			// Add backend to parent - should not affect sub
+			mockBackend3 := mocks.NewMockEmitterBackend(ctrl)
+			parent.WithBackend(mockBackend3)
+			Expect(parent.backends).To(HaveLen(2))
+			Expect(sub.backends).To(HaveLen(2))
+		})
+
+		It("Should allow different metadata via WithStaticMetadata", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			parent := NewEmitter(mockBackend)
+
+			// Create metadata for parent (package1)
+			parentMetadata := map[string]CallSiteDetails{
+				"package1.event1": {
+					MetricType:   "COUNT",
+					PropertyKeys: []string{"prop1"},
+				},
+			}
+			parent.WithStaticMetadata(parentMetadata)
+
+			// Create sub-emitter with different metadata (package2)
+			sub := parent.NewSubEmitter()
+			subMetadata := map[string]CallSiteDetails{
+				"package2.event1": {
+					MetricType:   "GAUGE",
+					PropertyKeys: []string{"prop2"},
+				},
+			}
+			sub.WithStaticMetadata(subMetadata)
+
+			// Verify parent has its metadata
+			parentManifest := parent.GetManifest()
+			Expect(parentManifest).To(HaveLen(1))
+			Expect(parentManifest[0].Name).To(Equal("package1.event1"))
+			Expect(parentManifest[0].MetricType).To(Equal(COUNT))
+
+			// Verify sub has its own metadata
+			subManifest := sub.GetManifest()
+			Expect(subManifest).To(HaveLen(1))
+			Expect(subManifest[0].Name).To(Equal("package2.event1"))
+			Expect(subManifest[0].MetricType).To(Equal(GAUGE))
+		})
+
+		It("Should emit to same backends as parent", func() {
+			parent := NewEmitter(mockBackend).WithMagicHostname().WithHostnameProvider(func() (string, error) { return "test-host", nil })
+			sub := parent.NewSubEmitter()
+
+			// Both should emit to the same backend
+			mockBackend.EXPECT().EmitInt(gomock.Any(), "parent.event", gomock.Any(), int64(1), COUNT)
+			parent.Count(context.Background(), "parent.event", nil, 1)
+
+			mockBackend.EXPECT().EmitInt(gomock.Any(), "sub.event", gomock.Any(), int64(2), COUNT)
+			sub.Count(context.Background(), "sub.event", nil, 2)
+		})
+
+		It("Should allow further configuration with builder methods", func() {
+			parent := NewEmitter(mockBackend)
+			sub := parent.NewSubEmitter()
+
+			// Initially should inherit parent settings (all false)
+			Expect(sub.magicHostname).To(BeFalse())
+
+			// Configure sub independently
+			sub.WithMagicHostname()
+			Expect(sub.magicHostname).To(BeTrue())
+			Expect(parent.magicHostname).To(BeFalse())
+		})
+
+		It("Should have independent memoization tables", func() {
+			parent := NewEmitter(mockBackend).WithMagicHostname().WithHostnameProvider(func() (string, error) { return "parent-host", nil })
+			sub := parent.NewSubEmitter().WithHostnameProvider(func() (string, error) { return "sub-host", nil })
+
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			// Emit from parent - should memoize
+			parent.Count(context.Background(), "shared.event", nil, 1)
+			Expect(parent.memoTable).To(HaveKey("shared.event"))
+
+			// Sub should have its own memoization
+			sub.Count(context.Background(), "shared.event", nil, 1)
+			Expect(sub.memoTable).To(HaveKey("shared.event"))
+
+			// Verify they memoized different values (different hostnames)
+			Expect(parent.memoTable["shared.event"].hostname).To(Equal("parent-host"))
+			Expect(sub.memoTable["shared.event"].hostname).To(Equal("sub-host"))
+		})
+	})
 })
