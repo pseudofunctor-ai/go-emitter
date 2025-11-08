@@ -19,25 +19,25 @@ func TestCallSiteBehavior(t *testing.T) {
 			description: "Metrics registered with Metric() or MetricWithProps() should record callsite where INVOKED, not where DEFINED",
 			dir:         "testdata/example",
 			expected: map[string]CallSite{
-				// These should be recorded at their invocation site (lines 42-44)
-				// NOT at their definition site (lines 35-37)
+				// These should be recorded at their invocation site (lines 46-48)
+				// NOT at their definition site (lines 39-41)
 				"user_login_metric": {
 					EventName:    "user_login_metric",
-					LineNo:       42,
+					LineNo:       46,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: []string{"user_id", "success"},
 					MetricType:   "COUNT",
 				},
 				"request_duration": {
 					EventName:    "request_duration",
-					LineNo:       43,
+					LineNo:       47,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: []string{"endpoint", "method"},
 					MetricType:   "TIMER",
 				},
 				"active_users": {
 					EventName:    "active_users",
-					LineNo:       44,
+					LineNo:       48,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: nil,
 					MetricType:   "GAUGE",
@@ -49,18 +49,18 @@ func TestCallSiteBehavior(t *testing.T) {
 			description: "Logs registered with Log() or LogWithProps() should record callsite where INVOKED, not where DEFINED",
 			dir:         "testdata/example",
 			expected: map[string]CallSite{
-				// These should be recorded at their invocation site (lines 55-56)
-				// NOT at their definition site (lines 49-50)
+				// These should be recorded at their invocation site (lines 59-60)
+				// NOT at their definition site (lines 53-54)
 				"audit_log": {
 					EventName:    "audit_log",
-					LineNo:       55,
+					LineNo:       59,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredLogs",
 					PropertyKeys: []string{"action", "resource", "user"},
 					MetricType:   "COUNT",
 				},
 				"error_log": {
 					EventName:    "error_log",
-					LineNo:       56,
+					LineNo:       60,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredLogs",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -72,18 +72,18 @@ func TestCallSiteBehavior(t *testing.T) {
 			description: "Callbacks should not have Callsite information recorded when they are defined, but SHOULD have Callsite information when they are decorated with an `*FnCallsite`",
 			dir:         "testdata/example",
 			expected: map[string]CallSite{
-				// These should be at the MetricFnCallsite/LogFnCallsite invocation (lines 69-70)
-				// NOT at the callback definition (lines 62-63)
+				// These should be at the MetricFnCallsite/LogFnCallsite invocation (lines 73-74)
+				// NOT at the callback definition (lines 66-67)
 				"decorated_metric": {
 					EventName:    "decorated_metric",
-					LineNo:       69,
+					LineNo:       73,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
 				"decorated_log": {
 					EventName:    "decorated_log",
-					LineNo:       70,
+					LineNo:       74,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -95,18 +95,18 @@ func TestCallSiteBehavior(t *testing.T) {
 			description: "Callbacks should not have Callsite information recorded when they are defined, but SHOULD have Callsite information when they are decorated with an `*FnCallsite` or invoked",
 			dir:         "testdata/example",
 			expected: map[string]CallSite{
-				// These should be at the MetricFnCallsite/LogFnCallsite call (lines 82, 85)
-				// NOT at the definition (lines 74-75)
+				// These should be at the MetricFnCallsite/LogFnCallsite call (lines 86, 89)
+				// NOT at the definition (lines 78-79)
 				"cache_hit_metric": {
 					EventName:    "cache_hit_metric",
-					LineNo:       82,
+					LineNo:       86,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
 				"auth_failure_log": {
 					EventName:    "auth_failure_log",
-					LineNo:       85,
+					LineNo:       89,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -120,14 +120,14 @@ func TestCallSiteBehavior(t *testing.T) {
 			expected: map[string]CallSite{
 				"bloom_filter_reset": {
 					EventName:    "bloom_filter_reset",
-					LineNo:       98, // Line where MetricFnCallsite is called
+					LineNo:       102, // Line where MetricFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctionsWithProps",
 					PropertyKeys: []string{"density", "service_count"},
 					MetricType:   "COUNT",
 				},
 				"critical_confabulation": {
 					EventName:    "critical_confabulation",
-					LineNo:       101, // Line where LogFnCallsite is called
+					LineNo:       105, // Line where LogFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctionsWithProps",
 					PropertyKeys: []string{"confabulacity"},
 					MetricType:   "COUNT",

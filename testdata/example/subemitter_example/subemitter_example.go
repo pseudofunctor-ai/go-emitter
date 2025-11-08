@@ -6,16 +6,14 @@ import (
 	"github.com/pseudofunctor-ai/go-emitter/emitter"
 	"github.com/pseudofunctor-ai/go-emitter/emitter/backends/dummy"
 	"github.com/pseudofunctor-ai/go-emitter/emitter/types"
+	"github.com/pseudofunctor-ai/go-emitter/testdata/example/di"
 )
 
 // SubEmitterExample demonstrates using NewSubEmitter to create child emitters
 // with different metadata for different packages while sharing configuration.
-func SubEmitterExample() {
+func SubEmitterExample(deps di.Dependencies) {
 	// Create a parent emitter with shared configuration
-	backend := dummy.NewDummyEmitter()
-	parentEmitter := emitter.NewEmitter(backend).
-		WithAllMagicProps().
-		WithHostnameProvider(func() (string, error) { return "app-server", nil })
+	parentEmitter := deps.Emitter
 
 	// Example 1: Sub-emitter with static callsite provider for package1
 	// In a real scenario, this would use generated metadata from package1

@@ -591,7 +591,7 @@ func (e *callSiteExtractor) makeCallSite(node ast.Node, eventName string) CallSi
 	}
 }
 
-// isEmitterReceiver checks if the given expression refers to an emitter.Emitter type
+// isEmitterReceiver checks if the given expression refers to an emitter.Emitter type or CombinedEmitter interface
 func (e *callSiteExtractor) isEmitterReceiver(expr ast.Expr) bool {
 	// Get the type of the receiver expression
 	tv, ok := e.pkg.TypesInfo.Types[expr]
@@ -625,8 +625,17 @@ func (e *callSiteExtractor) isEmitterReceiver(expr ast.Expr) bool {
 		return false
 	}
 
-	// Check if this is github.com/pseudofunctor-ai/go-emitter/emitter.Emitter
-	return pkg.Path() == "github.com/pseudofunctor-ai/go-emitter/emitter" && obj.Name() == "Emitter"
+	// Check if this is github.com/pseudofunctor-ai/go-emitter/emitter.Emitter (concrete type)
+	if pkg.Path() == "github.com/pseudofunctor-ai/go-emitter/emitter" && obj.Name() == "Emitter" {
+		return true
+	}
+
+	// Check if this is github.com/pseudofunctor-ai/go-emitter/emitter/types.CombinedEmitter (interface)
+	if pkg.Path() == "github.com/pseudofunctor-ai/go-emitter/emitter/types" && obj.Name() == "CombinedEmitter" {
+		return true
+	}
+
+	return false
 }
 
 // findEnclosingFunc finds the name of the function enclosing the given position

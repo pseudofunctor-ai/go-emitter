@@ -6,14 +6,18 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/pseudofunctor-ai/go-emitter/emitter"
+	//"github.com/pseudofunctor-ai/go-emitter/emitter"
 	"github.com/pseudofunctor-ai/go-emitter/emitter/types"
+	"github.com/pseudofunctor-ai/go-emitter/testdata/example/di"
+	"github.com/pseudofunctor-ai/go-emitter/testdata/example/subemitter_example"
 )
 
-var em *emitter.Emitter
+var em types.CombinedEmitter //*emitter.Emitter
 
 func init() {
-	em = emitter.NewEmitter()
+  deps := di.NewDependencies()
+  em = deps.Emitter
+  subemitter_example.SubEmitterExample(deps)
 }
 
 // Test direct method calls
