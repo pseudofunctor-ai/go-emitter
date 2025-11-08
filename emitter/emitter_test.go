@@ -845,7 +845,7 @@ var _ = Describe("Emitter", func() {
 			Expect(emitter.registeredEvents).To(HaveLen(1))
 
 			// Create sub-emitter
-			subEmitter := emitter.NewSubEmitter()
+			subEmitter := emitter.NewSubEmitter().(*Emitter)
 
 			// Sub-emitter should have fresh maps
 			Expect(subEmitter.registeredEvents).To(BeEmpty())
@@ -874,7 +874,7 @@ var _ = Describe("Emitter", func() {
 				WithMagicPackage()
 
 			// Create sub-emitter
-			sub := parent.NewSubEmitter()
+			sub := parent.NewSubEmitter().(*Emitter)
 
 			// Check all flags are inherited
 			Expect(sub.magicHostname).To(Equal(parent.magicHostname))
@@ -897,7 +897,7 @@ var _ = Describe("Emitter", func() {
 			parent := NewEmitter(mockBackend)
 
 			// Create sub-emitter
-			sub := parent.NewSubEmitter()
+			sub := parent.NewSubEmitter().(*Emitter)
 
 			// Both should have same backend initially
 			Expect(sub.backends).To(HaveLen(1))
@@ -929,7 +929,7 @@ var _ = Describe("Emitter", func() {
 			parent.WithStaticMetadata(parentMetadata)
 
 			// Create sub-emitter with different metadata (package2)
-			sub := parent.NewSubEmitter()
+			sub := parent.NewSubEmitter().(*Emitter)
 			subMetadata := map[string]CallSiteDetails{
 				"package2.event1": {
 					MetricType:   "GAUGE",
@@ -953,7 +953,7 @@ var _ = Describe("Emitter", func() {
 
 		It("Should emit to same backends as parent", func() {
 			parent := NewEmitter(mockBackend).WithMagicHostname().WithHostnameProvider(func() (string, error) { return "test-host", nil })
-			sub := parent.NewSubEmitter()
+			sub := parent.NewSubEmitter().(*Emitter)
 
 			// Both should emit to the same backend
 			mockBackend.EXPECT().EmitInt(gomock.Any(), "parent.event", gomock.Any(), int64(1), COUNT)
@@ -965,7 +965,7 @@ var _ = Describe("Emitter", func() {
 
 		It("Should allow further configuration with builder methods", func() {
 			parent := NewEmitter(mockBackend)
-			sub := parent.NewSubEmitter()
+			sub := parent.NewSubEmitter().(*Emitter)
 
 			// Initially should inherit parent settings (all false)
 			Expect(sub.magicHostname).To(BeFalse())
@@ -978,7 +978,7 @@ var _ = Describe("Emitter", func() {
 
 		It("Should have independent memoization tables", func() {
 			parent := NewEmitter(mockBackend).WithMagicHostname().WithHostnameProvider(func() (string, error) { return "parent-host", nil })
-			sub := parent.NewSubEmitter().WithHostnameProvider(func() (string, error) { return "sub-host", nil })
+			sub := parent.NewSubEmitter().(*Emitter).WithHostnameProvider(func() (string, error) { return "sub-host", nil })
 
 			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 

@@ -73,6 +73,8 @@ type CombinedEmitter interface {
 	MetricsEmitter
 	Metric(event string, metricType MetricType) MetricEmitterFn
 	Log(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})) LogEmitterFn
+  NewSubEmitter() CombinedEmitter
+  WithStaticMetadata(staticData map[string]CallSiteDetails) CombinedEmitter
 }
 
 type MetricType int

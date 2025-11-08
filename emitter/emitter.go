@@ -130,7 +130,7 @@ func NewEmitter(backends ...t.EmitterBackend) *Emitter {
 //
 // The returned emitter can be further configured using builder methods like
 // WithStaticMetadata, WithMagicHostname, etc.
-func (e *Emitter) NewSubEmitter() *Emitter {
+func (e *Emitter) NewSubEmitter() t.CombinedEmitter {
 	// Copy the backends slice to avoid sharing the underlying array
 	backendsCopy := make([]t.EmitterBackend, len(e.backends))
 	copy(backendsCopy, e.backends)
@@ -211,7 +211,7 @@ func (e *Emitter) WithAllMagicProps() *Emitter {
 // WithStaticMetadata populates registeredEvents from statically generated metadata.
 // This is typically used with a generated CallSiteDetails map from the generator tool.
 // It extracts metric types and property keys from the static data.
-func (e *Emitter) WithStaticMetadata(staticData map[string]t.CallSiteDetails) *Emitter {
+func (e *Emitter) WithStaticMetadata(staticData map[string]t.CallSiteDetails) t.CombinedEmitter {
 	for eventName, details := range staticData {
 		// Parse metric type from string
 		var metricType t.MetricType
