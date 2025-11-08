@@ -61,7 +61,7 @@ type ContextLoggerFmt interface {
 }
 
 type (
-	MetricEmitterFn func(ctx context.Context, props map[string]interface{})
+	MetricEmitterFn func(ctx context.Context, props map[string]interface{}, value ...interface{})
 	LogEmitterFn    func(ctx context.Context, props map[string]interface{}, format string, args ...interface{})
 )
 

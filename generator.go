@@ -184,26 +184,67 @@ func isRegistrationMethod(methodName string) bool {
 // extractCallbackInvocation detects when a registered callback (MetricEmitterFn/LogEmitterFn) is being invoked
 // Returns: eventName, callsite (empty strings if not a callback invocation)
 func (e *callSiteExtractor) extractCallbackInvocation(call *ast.CallExpr) (string, CallSite) {
-	// Check if the function being called is an identifier (a variable)
-	ident, ok := call.Fun.(*ast.Ident)
+	// Try direct identifier invocation first (e.g., userLoginMetric(...))
+	if ident, ok := call.Fun.(*ast.Ident); ok {
+		// Look up the identifier in the type info to see if it's a registered callback
+		obj := e.pkg.TypesInfo.Uses[ident]
+		if obj == nil {
+			return "", CallSite{}
+		}
+
+		// Check if this identifier refers to a variable that was assigned from Metric/Log
+		// We need to find where this variable was defined and extract the event name
+		callsite := e.findCallSiteFromDefinition(obj.Pos())
+		if callsite.EventName == "" {
+			return "", CallSite{}
+		}
+
+		// Update the callsite to reflect this invocation location, not the definition
+		pos := e.pkg.Fset.Position(call.Pos())
+		funcName := e.findEnclosingFunc(call.Pos())
+
+		return callsite.EventName, CallSite{
+			EventName:    callsite.EventName,
+			Filename:     pos.Filename,
+			LineNo:       pos.Line,
+			FuncName:     funcName,
+			Package:      e.pkg.PkgPath,
+			PropertyKeys: callsite.PropertyKeys,
+			MetricType:   callsite.MetricType,
+		}
+	}
+
+	// Try selector expression invocation (e.g., tem.event1(...))
+	if selExpr, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return e.extractCallbackFromSelector(call, selExpr)
+	}
+
+	return "", CallSite{}
+}
+
+// extractCallbackFromSelector handles callback invocations via struct field access (e.g., tem.event1(...))
+func (e *callSiteExtractor) extractCallbackFromSelector(call *ast.CallExpr, selExpr *ast.SelectorExpr) (string, CallSite) {
+	// Check if this is a callback type
+	tv, ok := e.pkg.TypesInfo.Types[selExpr]
 	if !ok {
 		return "", CallSite{}
 	}
 
-	// Look up the identifier in the type info to see if it's a registered callback
-	obj := e.pkg.TypesInfo.Uses[ident]
-	if obj == nil {
+	// Check if it's a MetricEmitterFn or LogEmitterFn type
+	if !e.isCallbackType(tv.Type) {
 		return "", CallSite{}
 	}
 
-	// Check if this identifier refers to a variable that was assigned from Metric/Log
-	// We need to find where this variable was defined and extract the event name
-	callsite := e.findCallSiteFromDefinition(obj.Pos())
+	// We need to trace back to find where this field was initialized
+	// This is complex, so for now we'll use a simplified approach:
+	// Search for struct literals or composite literals that initialize this field
+	fieldName := selExpr.Sel.Name
+	callsite := e.findCallbackFieldInitialization(fieldName)
 	if callsite.EventName == "" {
 		return "", CallSite{}
 	}
 
-	// Update the callsite to reflect this invocation location, not the definition
+	// Update the callsite to reflect this invocation location
 	pos := e.pkg.Fset.Position(call.Pos())
 	funcName := e.findEnclosingFunc(call.Pos())
 
@@ -216,6 +257,77 @@ func (e *callSiteExtractor) extractCallbackInvocation(call *ast.CallExpr) (strin
 		PropertyKeys: callsite.PropertyKeys,
 		MetricType:   callsite.MetricType,
 	}
+}
+
+// isCallbackType checks if a type is MetricEmitterFn or LogEmitterFn
+func (e *callSiteExtractor) isCallbackType(typ types.Type) bool {
+	named, ok := typ.(*types.Named)
+	if !ok {
+		return false
+	}
+
+	obj := named.Obj()
+	if obj == nil {
+		return false
+	}
+
+	pkg := obj.Pkg()
+	if pkg == nil || pkg.Path() != "github.com/pseudofunctor-ai/go-emitter/emitter/types" {
+		return false
+	}
+
+	name := obj.Name()
+	return name == "MetricEmitterFn" || name == "LogEmitterFn"
+}
+
+// findCallbackFieldInitialization searches for where a struct field with the given name
+// was initialized with a callback (Metric/Log call)
+func (e *callSiteExtractor) findCallbackFieldInitialization(fieldName string) CallSite {
+	// Search through all files in the package for composite literals or return statements
+	// that initialize a field with this name
+	for _, file := range e.pkg.Syntax {
+		var result CallSite
+		ast.Inspect(file, func(n ast.Node) bool {
+			if result.EventName != "" {
+				return false // Already found it
+			}
+
+			// Look for composite literals (struct initialization)
+			if compLit, ok := n.(*ast.CompositeLit); ok {
+				for _, elt := range compLit.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						// Check if the key matches our field name
+						if ident, ok := kv.Key.(*ast.Ident); ok && ident.Name == fieldName {
+							// Check if the value is a call to Metric/Log
+							if callExpr, ok := kv.Value.(*ast.CallExpr); ok {
+								if selExpr, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
+									methodName := selExpr.Sel.Name
+									if methodName == "Metric" || methodName == "MetricWithProps" ||
+										methodName == "Log" || methodName == "LogWithProps" {
+										eventName := e.extractEventNameArg(callExpr, methodName)
+										if eventName != "" {
+											result = e.makeCallSite(callExpr, eventName)
+											result.PropertyKeys = e.extractPropertyKeys(callExpr, methodName)
+											result.MetricType = e.extractMetricType(callExpr, methodName)
+											return false
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			return true
+		})
+
+		if result.EventName != "" {
+			return result
+		}
+	}
+
+	return CallSite{}
 }
 
 // extractFromCall extracts event name and call site from a function call
@@ -735,7 +847,7 @@ func writeOutputFile(outputPath, pkgName, varName string, callsites map[string]C
 
 	w := &codeWriter{file: f}
 
-	w.writeLine("// Code generated by emitter-gen. DO NOT EDIT.")
+	w.writeLine("// Code generated by go-emitter. DO NOT EDIT.")
 	w.writeLine("")
 	w.writeLine("package %s", pkgName)
 	w.writeLine("")

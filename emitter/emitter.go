@@ -255,7 +255,28 @@ func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterF
 	silentE.EmitInt(context.Background(), event, nil, 0, metricType)
 
 	e.registeredEvents[event] = eventMetadata{metricType: metricType, propertyKeys: nil}
-	return func(ctx context.Context, props map[string]interface{}) {
+	return func(ctx context.Context, props map[string]interface{}, value ...interface{}) {
+    if len(value) == 0 {
+      if metricType == t.COUNT {
+        e.EmitInt(ctx, event, props, 1, metricType)
+      } else {
+        e.EmitInt(ctx, event, props, 0, metricType)
+      }
+      return
+    }
+  v := value[0]
+    switch x := v.(type) {
+    case int:
+      e.EmitInt(ctx, event, props, int64(x), metricType)
+    case int64:
+      e.EmitInt(ctx, event, props, x, metricType)
+    case float32:
+      e.EmitFloat(ctx, event, props, float64(x), metricType)
+    case float64:
+      e.EmitFloat(ctx, event, props, x, metricType)
+    default:
+      e.ErrorfContext(ctx, event, map[string]interface{}{}, "Value must be int, int64, float32, or float64")
+    }
 		e.EmitInt(ctx, event, props, 1, metricType)
 	}
 }
@@ -301,14 +322,35 @@ func (e *Emitter) MetricWithProps(event string, metricType t.MetricType, propKey
 		propKeySet[key] = struct{}{}
 	}
 
-	return func(ctx context.Context, props map[string]interface{}) {
-		// Validate prop keys
+	return func(ctx context.Context, props map[string]interface{}, value ...interface{}) {
 		for key := range props {
 			if _, ok := propKeySet[key]; !ok {
-				panic(fmt.Sprintf("Unexpected property key '%s' for event '%s'. Expected keys: %v", key, event, propKeys))
+        e.ErrorfContext(ctx, event, map[string]interface{}{}, "Unexpected property key '%s' for event '%s'. Expected keys: %v", key, event, propKeys)
+        return
 			}
 		}
-		e.EmitInt(ctx, event, props, 1, metricType)
+
+    if len(value) == 0 {
+      if metricType == t.COUNT {
+        e.EmitInt(ctx, event, props, 1, metricType)
+      } else {
+        e.EmitInt(ctx, event, props, 0, metricType)
+      }
+      return
+    }
+    v := value[0]
+    switch x := v.(type) {
+    case int:
+      e.EmitInt(ctx, event, props, int64(x), metricType)
+    case int64:
+      e.EmitInt(ctx, event, props, x, metricType)
+    case float32:
+      e.EmitFloat(ctx, event, props, float64(x), metricType)
+    case float64:
+      e.EmitFloat(ctx, event, props, x, metricType)
+    default:
+      e.ErrorfContext(ctx, event, map[string]interface{}{}, "Value must be int, int64, float32, or float64")
+    }
 	}
 }
 

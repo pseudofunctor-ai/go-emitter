@@ -697,17 +697,16 @@ var _ = Describe("Emitter", func() {
 			})
 		})
 
-		It("Should panic when using unexpected property key", func() {
-			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+		It("Should emit an error when using unexpected property key", func() {
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Eq(map[string]interface{}{"_logLevel": "ERROR", "_message": "Unexpected property key 'bad_key' for event 'api.request'. Expected keys: [endpoint]"}), int64(1), gomock.Any()).Times(1)
 
 			metricFn := emitter.MetricWithProps("api.request", COUNT, []string{"endpoint"})
 
-			Expect(func() {
-				metricFn(context.Background(), map[string]interface{}{
-					"endpoint":   "/users",
-					"bad_key":    "value",
-				})
-			}).To(Panic())
+      metricFn(context.Background(), map[string]interface{}{
+        "endpoint":   "/users",
+        "bad_key":    "value",
+      })
 		})
 
 		It("Should allow subset of property keys", func() {

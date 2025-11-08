@@ -20,35 +20,35 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Direct calls with property keys extracted from map literals
 				"direct_count": {
 					EventName:    "direct_count",
-					LineNo:       28,
+					LineNo:       29,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"environment", "region"},
 					MetricType:   "COUNT",
 				},
 				"direct_gauge": {
 					EventName:    "direct_gauge",
-					LineNo:       29,
+					LineNo:       30,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"host"},
 					MetricType:   "GAUGE",
 				},
 				"direct_info_log": {
 					EventName:    "direct_info_log",
-					LineNo:       32,
+					LineNo:       33,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"action", "user"},
 					MetricType:   "COUNT",
 				},
 				"direct_error_log": {
 					EventName:    "direct_error_log",
-					LineNo:       33,
+					LineNo:       34,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: []string{"code"},
 					MetricType:   "COUNT",
 				},
 				"direct_debugf_log": {
 					EventName:    "direct_debugf_log",
-					LineNo:       34,
+					LineNo:       35,
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectCalls",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -56,21 +56,21 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Registered metrics - recorded at INVOCATION site, not definition
 				"user_login_metric": {
 					EventName:    "user_login_metric",
-					LineNo:       46, // Line where callback is invoked
+					LineNo:       47, // Line where callback is invoked
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: []string{"user_id", "success"},
 					MetricType:   "COUNT",
 				},
 				"request_duration": {
 					EventName:    "request_duration",
-					LineNo:       47, // Line where callback is invoked
+					LineNo:       48, // Line where callback is invoked
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: []string{"endpoint", "method"},
 					MetricType:   "TIMER",
 				},
 				"active_users": {
 					EventName:    "active_users",
-					LineNo:       48, // Line where callback is invoked
+					LineNo:       49, // Line where callback is invoked
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredMetrics",
 					PropertyKeys: nil,
 					MetricType:   "GAUGE",
@@ -78,14 +78,14 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Registered logs - recorded at INVOCATION site, not definition
 				"audit_log": {
 					EventName:    "audit_log",
-					LineNo:       59, // Line where callback is invoked
+					LineNo:       60, // Line where callback is invoked
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredLogs",
 					PropertyKeys: []string{"action", "resource", "user"},
 					MetricType:   "COUNT",
 				},
 				"error_log": {
 					EventName:    "error_log",
-					LineNo:       60, // Line where callback is invoked
+					LineNo:       61, // Line where callback is invoked
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.RegisteredLogs",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -93,14 +93,14 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Inline decorated - recorded at *FnCallsite invocation
 				"decorated_metric": {
 					EventName:    "decorated_metric",
-					LineNo:       73, // Line where MetricFnCallsite is called
+					LineNo:       74, // Line where MetricFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
 				"decorated_log": {
 					EventName:    "decorated_log",
-					LineNo:       74, // Line where LogFnCallsite is called
+					LineNo:       75, // Line where LogFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -108,14 +108,14 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Indirect decoration - recorded at *FnCallsite invocation
 				"cache_hit_metric": {
 					EventName:    "cache_hit_metric",
-					LineNo:       86, // Line where MetricFnCallsite is called
+					LineNo:       87, // Line where MetricFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
 				},
 				"auth_failure_log": {
 					EventName:    "auth_failure_log",
-					LineNo:       89, // Line where LogFnCallsite is called
+					LineNo:       90, // Line where LogFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctions",
 					PropertyKeys: nil,
 					MetricType:   "COUNT",
@@ -123,17 +123,32 @@ func TestGeneratorIntegration(t *testing.T) {
 				// Indirect decoration with props - recorded at *FnCallsite invocation
 				"bloom_filter_reset": {
 					EventName:    "bloom_filter_reset",
-					LineNo:       102, // Line where MetricFnCallsite is called
+					LineNo:       103, // Line where MetricFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctionsWithProps",
 					PropertyKeys: []string{"density", "service_count"},
 					MetricType:   "COUNT",
 				},
 				"critical_confabulation": {
 					EventName:    "critical_confabulation",
-					LineNo:       105, // Line where LogFnCallsite is called
+					LineNo:       106, // Line where LogFnCallsite is called
 					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.IndirectlyDecoratedFunctionsWithProps",
 					PropertyKeys: []string{"confabulacity"},
 					MetricType:   "COUNT",
+				},
+				// Callbacks defined in separate compilation unit (struct fields)
+				"event1": {
+					EventName:    "event1",
+					LineNo:       145, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersDefinedInAnotherCompilationUnit",
+					PropertyKeys: []string{"prop1", "prop2"},
+					MetricType:   "COUNT",
+				},
+				"event2": {
+					EventName:    "event2",
+					LineNo:       146, // Line where callback is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.EmittersDefinedInAnotherCompilationUnit",
+					PropertyKeys: []string{"metric1", "metric2"},
+					MetricType:   "GAUGE",
 				},
 			},
 		},

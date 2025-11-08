@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	//"github.com/pseudofunctor-ai/go-emitter/emitter"
 	"github.com/pseudofunctor-ai/go-emitter/emitter/types"
@@ -137,4 +138,11 @@ func NonEmitterCalls() {
 	fake.Info("should not be picked up")
 	fake.Count(ctx, "not_an_emitter_count", nil, 1)
 	fake.Gauge(ctx, "not_an_emitter_gauge", nil, 42.0)
+}
+
+func EmittersDefinedInAnotherCompilationUnit() {
+  tem := someEmitters(em)
+  tem.event1(context.Background(), map[string]interface{}{"prop1": "value1", "prop2": "value2"}, "Event 1 occurred")
+  tem.event2(context.Background(), map[string]interface{}{"metric1": "value1", "metric2": "value2"}, 100)
+  tem.event3.Time(context.Background(), "timed_event", map[string]interface{}{"Hello": "World"}, func() int { time.Sleep(1 * time.Millisecond); return 0 })
 }

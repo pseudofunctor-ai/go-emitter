@@ -482,7 +482,7 @@ func (m *MockMetricsEmitter) EXPECT() *MockMetricsEmitterMockRecorder {
 }
 
 // Count mocks base method.
-func (m *MockMetricsEmitter) Count(arg0 context.Context, arg1 string, arg2 map[string]any, arg3 float64) {
+func (m *MockMetricsEmitter) Count(arg0 context.Context, arg1 string, arg2 map[string]any, arg3 int64) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Count", arg0, arg1, arg2, arg3)
 }
