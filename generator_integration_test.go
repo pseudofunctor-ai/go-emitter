@@ -135,6 +135,95 @@ func TestGeneratorIntegration(t *testing.T) {
 					PropertyKeys: []string{"confabulacity"},
 					MetricType:   "COUNT",
 				},
+				// Function call receiver - emitter returned from function call
+				"function_call_test_log": {
+					EventName:    "function_call_test_log",
+					LineNo:       23, // Line where getEmitter(&deps).LogFnCallsite is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.FunctionCallReceiverTest",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				// Selector expressions in decorators (e.g., s.emitters.createSuccess)
+				"selector_create_success": {
+					EventName:    "selector_create_success",
+					LineNo:       54, // Line where LogFnCallsite(s.emitters.createSuccess) is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.CreateItem",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"selector_create_failure": {
+					EventName:    "selector_create_failure",
+					LineNo:       55, // Line where LogFnCallsite(s.emitters.createFailure) is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.CreateItem",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"selector_update_success": {
+					EventName:    "selector_update_success",
+					LineNo:       62, // Line where MetricFnCallsite(s.emitters.updateSuccess) is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.UpdateItem",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"selector_update_failure": {
+					EventName:    "selector_update_failure",
+					LineNo:       63, // Line where MetricFnCallsite(s.emitters.updateFailure) is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.UpdateItem",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				// Tracing through chained variable assignments (cb2 := cb := deleteSuccessCallback)
+				"selector_delete_success": {
+					EventName:    "selector_delete_success",
+					LineNo:       76, // Line where LogFnCallsite(cb2) is called
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DeleteItem",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				// Field name collision handling - ServiceAEmitters.getSuccess vs ServiceBEmitters.getSuccess
+				"service_a_get_success": {
+					EventName:    "service_a_get_success",
+					LineNo:       74, // Line where LogFnCallsite(s.emitters.getSuccess) is called in serviceA
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.TestServiceAWithCollision",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"service_a_get_failure": {
+					EventName:    "service_a_get_failure",
+					LineNo:       75, // Line where LogFnCallsite(s.emitters.getFailure) is called in serviceA
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.TestServiceAWithCollision",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"service_b_get_success": {
+					EventName:    "service_b_get_success",
+					LineNo:       81, // Line where LogFnCallsite(s.emitters.getSuccess) is called in serviceB
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.TestServiceBWithCollision",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"service_b_get_failure": {
+					EventName:    "service_b_get_failure",
+					LineNo:       82, // Line where LogFnCallsite(s.emitters.getFailure) is called in serviceB
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.TestServiceBWithCollision",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				// Direct callback invocation with field name collision
+				"service_a_direct_get_success": {
+					EventName:    "service_a_direct_get_success",
+					LineNo:       97, // Line where svcA.emitters.directGetSuccess is directly invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.TestDirectInvocationCollision",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
+				"service_b_direct_get_success": {
+					EventName:    "service_b_direct_get_success",
+					LineNo:       99, // Line where svcB.emitters.directGetSuccess is directly invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.TestDirectInvocationCollision",
+					PropertyKeys: nil,
+					MetricType:   "COUNT",
+				},
 				// Callbacks defined in separate compilation unit (struct fields)
 				"event1": {
 					EventName:    "event1",

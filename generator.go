@@ -241,10 +241,24 @@ func (e *callSiteExtractor) extractCallbackFromSelector(call *ast.CallExpr, selE
 	}
 
 	// We need to trace back to find where this field was initialized
-	// This is complex, so for now we'll use a simplified approach:
-	// Search for struct literals or composite literals that initialize this field
-	fieldName := selExpr.Sel.Name
-	callsite := e.findCallbackFieldInitialization(fieldName)
+	// Use TypesInfo to find the exact field being referenced (handles name collisions)
+	var callsite CallSite
+	if obj := e.pkg.TypesInfo.Uses[selExpr.Sel]; obj != nil {
+		// For struct fields, use type-aware lookup
+		if fieldVar, ok := obj.(*types.Var); ok && fieldVar.IsField() {
+			callsite = e.findCallbackFieldInitializationByType(fieldVar)
+		} else {
+			// For other cases, trace from the definition position
+			callsite = e.findCallSiteFromDefinition(obj.Pos())
+		}
+	}
+
+	// Fallback to name-based search if TypesInfo lookup failed
+	if callsite.EventName == "" {
+		fieldName := selExpr.Sel.Name
+		callsite = e.findCallbackFieldInitialization(fieldName)
+	}
+
 	if callsite.EventName == "" {
 		return "", CallSite{}
 	}
@@ -752,6 +766,67 @@ func (e *callSiteExtractor) isCallbackType(typ types.Type) bool {
 	return name == "MetricEmitterFn" || name == "LogEmitterFn"
 }
 
+// findCallbackFieldInitializationByType searches for where a specific struct field (by type and name)
+// was initialized with a callback (Metric/Log call). This handles field name collisions by using type info.
+func (e *callSiteExtractor) findCallbackFieldInitializationByType(fieldObj *types.Var) CallSite {
+	if fieldObj == nil {
+		return CallSite{}
+	}
+
+	fieldName := fieldObj.Name()
+
+	// Get the struct type that contains this field
+	// fieldObj.Type() is the field's type (LogEmitterFn), we need the containing struct
+	// We can identify the correct struct by checking if the field position matches
+	fieldPos := fieldObj.Pos()
+
+	// Search for composite literals that initialize this specific field
+	for _, file := range e.pkg.Syntax {
+		var result CallSite
+		ast.Inspect(file, func(n ast.Node) bool {
+			if result.EventName != "" {
+				return false
+			}
+
+			if compLit, ok := n.(*ast.CompositeLit); ok {
+				// Check if this composite literal's type matches the struct containing our field
+				for _, elt := range compLit.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						if ident, ok := kv.Key.(*ast.Ident); ok && ident.Name == fieldName {
+							// Verify this is the right field by checking if it refers to the same object
+							if obj := e.pkg.TypesInfo.Uses[ident]; obj != nil && obj.Pos() == fieldPos {
+								// This is the correct field initialization
+								if callExpr, ok := kv.Value.(*ast.CallExpr); ok {
+									if selExpr, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
+										methodName := selExpr.Sel.Name
+										if methodName == "Metric" || methodName == "MetricWithProps" ||
+											methodName == "Log" || methodName == "LogWithProps" {
+											eventName := e.extractEventNameArg(callExpr, methodName)
+											if eventName != "" {
+												result = e.makeCallSite(callExpr, eventName)
+												result.PropertyKeys = e.extractPropertyKeys(callExpr, methodName)
+												result.MetricType = e.extractMetricType(callExpr, methodName)
+												return false
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+
+		if result.EventName != "" {
+			return result
+		}
+	}
+
+	return CallSite{}
+}
+
 // findCallbackFieldInitialization searches for where a struct field with the given name
 // was initialized with a callback (Metric/Log call)
 func (e *callSiteExtractor) findCallbackFieldInitialization(fieldName string) CallSite {
@@ -856,20 +931,41 @@ func (e *callSiteExtractor) extractCallsiteDecorator(call *ast.CallExpr, decorat
 		return "", CallSite{}
 	}
 
-	// The argument should be an identifier referring to a MetricEmitterFn or LogEmitterFn
-	ident, ok := call.Args[0].(*ast.Ident)
-	if !ok {
+	var callsite CallSite
+
+	// The argument can be either an identifier (e.g., decoratedLog) or a selector (e.g., r.emitters.createSuccess)
+	switch arg := call.Args[0].(type) {
+	case *ast.Ident:
+		// Simple identifier case
+		obj := e.pkg.TypesInfo.Uses[arg]
+		if obj == nil {
+			return "", CallSite{}
+		}
+		callsite = e.findCallSiteFromDefinition(obj.Pos())
+
+	case *ast.SelectorExpr:
+		// Selector expression case (e.g., r.emitters.createSuccess)
+		// Use TypesInfo to find the exact field being referenced (handles name collisions)
+		if obj := e.pkg.TypesInfo.Uses[arg.Sel]; obj != nil {
+			// For struct fields, use type-aware lookup
+			if fieldVar, ok := obj.(*types.Var); ok && fieldVar.IsField() {
+				callsite = e.findCallbackFieldInitializationByType(fieldVar)
+			} else {
+				// For other cases, trace from the definition position
+				callsite = e.findCallSiteFromDefinition(obj.Pos())
+			}
+		}
+
+		// Fallback to name-based search if TypesInfo lookup failed
+		if callsite.EventName == "" {
+			fieldName := arg.Sel.Name
+			callsite = e.findCallbackFieldInitialization(fieldName)
+		}
+
+	default:
 		return "", CallSite{}
 	}
 
-	// Look up where this identifier is defined
-	obj := e.pkg.TypesInfo.Uses[ident]
-	if obj == nil {
-		return "", CallSite{}
-	}
-
-	// Find the assignment/declaration and extract full metadata
-	callsite := e.findCallSiteFromDefinition(obj.Pos())
 	if callsite.EventName == "" {
 		return "", CallSite{}
 	}
@@ -930,32 +1026,67 @@ func (e *callSiteExtractor) findEventNameFromDefinition(pos token.Pos) string {
 }
 
 // extractCallSiteFromAssignment extracts full callsite from an assignment like `foo := emitter.Metric("event_name", COUNT)`
+// or traces through callback references like `cb := s.emitters.validateSuccess`
 func (e *callSiteExtractor) extractCallSiteFromAssignment(assign *ast.AssignStmt) CallSite {
 	if len(assign.Rhs) != 1 {
 		return CallSite{}
 	}
 
-	call, ok := assign.Rhs[0].(*ast.CallExpr)
-	if !ok {
-		return CallSite{}
-	}
-
-	selExpr, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return CallSite{}
-	}
-
-	methodName := selExpr.Sel.Name
-	if methodName == "Metric" || methodName == "Log" || methodName == "MetricWithProps" || methodName == "LogWithProps" {
-		eventName := e.extractEventNameArg(call, methodName)
-		if eventName == "" {
+	// Case 1: RHS is a call expression that creates a new callback
+	if call, ok := assign.Rhs[0].(*ast.CallExpr); ok {
+		selExpr, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
 			return CallSite{}
 		}
 
-		callsite := e.makeCallSite(call, eventName)
-		callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
-		callsite.MetricType = e.extractMetricType(call, methodName)
-		return callsite
+		methodName := selExpr.Sel.Name
+		if methodName == "Metric" || methodName == "Log" || methodName == "MetricWithProps" || methodName == "LogWithProps" {
+			eventName := e.extractEventNameArg(call, methodName)
+			if eventName == "" {
+				return CallSite{}
+			}
+
+			callsite := e.makeCallSite(call, eventName)
+			callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
+			callsite.MetricType = e.extractMetricType(call, methodName)
+			return callsite
+		}
+	}
+
+	// Case 2: RHS is a reference to an existing callback (identifier or selector)
+	// Examples: `cb := existingCallback` or `cb := s.emitters.validateSuccess`
+	// We need to trace what the RHS refers to
+	rhsExpr := assign.Rhs[0]
+
+	// For identifiers, use TypesInfo to find what they refer to
+	if ident, ok := rhsExpr.(*ast.Ident); ok {
+		obj := e.pkg.TypesInfo.Uses[ident]
+		if obj != nil {
+			// Recursively trace the callback definition
+			return e.findCallSiteFromDefinition(obj.Pos())
+		}
+	}
+
+	// For selector expressions, trace the field initialization
+	if selExpr, ok := rhsExpr.(*ast.SelectorExpr); ok {
+		// Use TypesInfo to find the exact field being referenced (handles name collisions)
+		if obj := e.pkg.TypesInfo.Uses[selExpr.Sel]; obj != nil {
+			// For struct fields, use type-aware lookup
+			if fieldVar, ok := obj.(*types.Var); ok && fieldVar.IsField() {
+				if callsite := e.findCallbackFieldInitializationByType(fieldVar); callsite.EventName != "" {
+					return callsite
+				}
+			} else {
+				// For other cases, trace from the definition position
+				if callsite := e.findCallSiteFromDefinition(obj.Pos()); callsite.EventName != "" {
+					return callsite
+				}
+			}
+		}
+
+		// Fallback to name-based search if TypesInfo lookup failed
+		fieldName := selExpr.Sel.Name
+		return e.findCallbackFieldInitialization(fieldName)
 	}
 
 	return CallSite{}
@@ -968,32 +1099,66 @@ func (e *callSiteExtractor) extractEventNameFromAssignment(assign *ast.AssignStm
 }
 
 // extractCallSiteFromValueSpec extracts full callsite from a var declaration
+// or traces through callback references like `var cb = s.emitters.validateSuccess`
 func (e *callSiteExtractor) extractCallSiteFromValueSpec(spec *ast.ValueSpec) CallSite {
 	if len(spec.Values) != 1 {
 		return CallSite{}
 	}
 
-	call, ok := spec.Values[0].(*ast.CallExpr)
-	if !ok {
-		return CallSite{}
-	}
-
-	selExpr, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return CallSite{}
-	}
-
-	methodName := selExpr.Sel.Name
-	if methodName == "Metric" || methodName == "Log" || methodName == "MetricWithProps" || methodName == "LogWithProps" {
-		eventName := e.extractEventNameArg(call, methodName)
-		if eventName == "" {
+	// Case 1: Value is a call expression that creates a new callback
+	if call, ok := spec.Values[0].(*ast.CallExpr); ok {
+		selExpr, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
 			return CallSite{}
 		}
 
-		callsite := e.makeCallSite(call, eventName)
-		callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
-		callsite.MetricType = e.extractMetricType(call, methodName)
-		return callsite
+		methodName := selExpr.Sel.Name
+		if methodName == "Metric" || methodName == "Log" || methodName == "MetricWithProps" || methodName == "LogWithProps" {
+			eventName := e.extractEventNameArg(call, methodName)
+			if eventName == "" {
+				return CallSite{}
+			}
+
+			callsite := e.makeCallSite(call, eventName)
+			callsite.PropertyKeys = e.extractPropertyKeys(call, methodName)
+			callsite.MetricType = e.extractMetricType(call, methodName)
+			return callsite
+		}
+	}
+
+	// Case 2: Value is a reference to an existing callback
+	// Examples: `var cb = existingCallback` or `var cb = s.emitters.validateSuccess`
+	valueExpr := spec.Values[0]
+
+	// For identifiers, use TypesInfo to find what they refer to
+	if ident, ok := valueExpr.(*ast.Ident); ok {
+		obj := e.pkg.TypesInfo.Uses[ident]
+		if obj != nil {
+			// Recursively trace the callback definition
+			return e.findCallSiteFromDefinition(obj.Pos())
+		}
+	}
+
+	// For selector expressions, trace the field initialization
+	if selExpr, ok := valueExpr.(*ast.SelectorExpr); ok {
+		// Use TypesInfo to find the exact field being referenced (handles name collisions)
+		if obj := e.pkg.TypesInfo.Uses[selExpr.Sel]; obj != nil {
+			// For struct fields, use type-aware lookup
+			if fieldVar, ok := obj.(*types.Var); ok && fieldVar.IsField() {
+				if callsite := e.findCallbackFieldInitializationByType(fieldVar); callsite.EventName != "" {
+					return callsite
+				}
+			} else {
+				// For other cases, trace from the definition position
+				if callsite := e.findCallSiteFromDefinition(obj.Pos()); callsite.EventName != "" {
+					return callsite
+				}
+			}
+		}
+
+		// Fallback to name-based search if TypesInfo lookup failed
+		fieldName := selExpr.Sel.Name
+		return e.findCallbackFieldInitialization(fieldName)
 	}
 
 	return CallSite{}
