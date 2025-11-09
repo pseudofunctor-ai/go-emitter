@@ -402,6 +402,10 @@ func TestGeneratorIntegration(t *testing.T) {
 				"should not be picked up",  // FakeLogger.Info
 				"not_an_emitter_count",      // FakeLogger.Count
 				"not_an_emitter_gauge",      // FakeLogger.Gauge
+				// FakeEmitter calls with wrong signatures (should be filtered by signature validation)
+				"fake_count",                // FakeEmitter.Count (wrong signature)
+				"fake_gauge",                // FakeEmitter.Gauge (wrong signature)
+				"fake_info",                 // FakeEmitter.InfoContext (wrong signature)
 			}
 
 			for _, unexpected := range unexpectedEvents {
