@@ -65,12 +65,27 @@ type (
 	LogEmitterFn    func(ctx context.Context, props map[string]interface{}, format string, args ...interface{})
 )
 
+type IntEmitter interface {
+  EmitInt(ctx context.Context, event string, props map[string]interface{}, value int64, metricType MetricType)
+}
+
+type FloatEmitter interface {
+  EmitFloat(ctx context.Context, event string, props map[string]interface{}, value float64, metricType MetricType)
+}
+
+type DurationEmitter interface {
+  EmitDuration(ctx context.Context, event string, props map[string]interface{}, value time.Duration, metricType MetricType)
+}
+
 type CombinedEmitter interface {
 	SimpleLogger
 	SimpleLoggerFmt
 	ContextLogger
 	ContextLoggerFmt
 	MetricsEmitter
+  DurationEmitter
+  FloatEmitter
+  IntEmitter
 	Metric(event string, metricType MetricType) MetricEmitterFn
 	MetricWithProps(event string, metricType MetricType, propKeys []string) MetricEmitterFn
 	Log(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})) LogEmitterFn

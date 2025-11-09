@@ -887,6 +887,15 @@ func (e *callSiteExtractor) extractFromCall(call *ast.CallExpr) (string, CallSit
 
 	methodName := selExpr.Sel.Name
 
+	// Handle timer calls first (timer.Time(...))
+	if methodName == "Time" {
+		eventName, callsite := e.extractTimerCall(call)
+		if eventName != "" {
+			return eventName, callsite, false
+		}
+		// Not a timer call, fall through to check emitter methods
+	}
+
 	// Verify this is actually an emitter method call by checking the receiver type
 	if !e.isEmitterReceiver(selExpr.X) {
 		return "", CallSite{}, false
@@ -921,6 +930,48 @@ func (e *callSiteExtractor) extractDirectCall(call *ast.CallExpr, methodName str
 
 	// Extract metric type
 	callsite.MetricType = e.extractMetricType(call, methodName)
+
+	return eventName, callsite
+}
+
+// extractTimerCall extracts event name from timer.Time() calls
+func (e *callSiteExtractor) extractTimerCall(call *ast.CallExpr) (string, CallSite) {
+	// Timer.Time signature: Time(ctx context.Context, event string, props map[string]interface{}, fn func() T) T
+	// We need at least 4 arguments
+	if len(call.Args) < 4 {
+		return "", CallSite{}
+	}
+
+	// Extract event name from the second argument (index 1)
+	lit, ok := call.Args[1].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		// Event name must be a string literal
+		return "", CallSite{}
+	}
+	eventName := strings.Trim(lit.Value, `"`)
+
+	// Create the call site
+	callsite := e.makeCallSite(call, eventName)
+
+	// Extract property keys from the third argument (index 2) - the props map
+	propsArg := call.Args[2]
+	if compLit, ok := propsArg.(*ast.CompositeLit); ok {
+		// Extract keys from the composite literal
+		keys := make([]string, 0)
+		for _, elt := range compLit.Elts {
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				if keyLit, ok := kv.Key.(*ast.BasicLit); ok && keyLit.Kind == token.STRING {
+					keys = append(keys, strings.Trim(keyLit.Value, `"`))
+				} else if keyIdent, ok := kv.Key.(*ast.Ident); ok {
+					keys = append(keys, keyIdent.Name)
+				}
+			}
+		}
+		callsite.PropertyKeys = keys
+	}
+
+	// Timer calls always have TIMER metric type
+	callsite.MetricType = "TIMER"
 
 	return eventName, callsite
 }

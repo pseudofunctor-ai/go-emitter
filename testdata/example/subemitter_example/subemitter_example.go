@@ -37,7 +37,7 @@ func SubEmitterExample(deps di.Dependencies) {
 	}
 
 	package1Emitter := parentEmitter.NewSubEmitter().
-		WithCallsiteProvider(emitter.StaticCallsiteProvider(package1Metadata)).
+		// WithCallsiteProvider(emitter.StaticCallsiteProvider(package1Metadata)).
 		WithStaticMetadata(package1Metadata)
 
 	// Example 2: Sub-emitter with different static metadata (simulating another package)
@@ -61,7 +61,7 @@ func SubEmitterExample(deps di.Dependencies) {
 	}
 
 	package2Emitter := parentEmitter.NewSubEmitter().
-		WithCallsiteProvider(emitter.StaticCallsiteProvider(package2Metadata)).
+		// WithCallsiteProvider(emitter.StaticCallsiteProvider(package2Metadata)).
 		WithStaticMetadata(package2Metadata)
 
 	// Example 3: Sub-emitter using default dynamic callsite provider
@@ -83,9 +83,9 @@ func SubEmitterExample(deps di.Dependencies) {
 	dynamicEmitter.Count(ctx, "dynamic.event", nil, 1)
 
 	// Verify each has its own manifest
-	_ = package1Emitter.GetManifest() // Contains package1 events
-	_ = package2Emitter.GetManifest() // Contains package2 events
-	_ = dynamicEmitter.GetManifest()  // Currently empty (no registered events)
+	_ = package1Emitter.(*emitter.Emitter).GetManifest() // Contains package1 events
+	_ = package2Emitter.(*emitter.Emitter).GetManifest() // Contains package2 events
+	_ = dynamicEmitter.(*emitter.Emitter).GetManifest()  // Currently empty (no registered events)
 }
 
 // MultiPackageSetup demonstrates a more realistic multi-package scenario
@@ -121,16 +121,16 @@ func NewMultiPackageSetup() *MultiPackageSetup {
 	}
 
 	package1 := global.NewSubEmitter().
-		WithCallsiteProvider(emitter.StaticCallsiteProvider(pkg1Metadata)).
+		// WithCallsiteProvider(emitter.StaticCallsiteProvider(pkg1Metadata)).
 		WithStaticMetadata(pkg1Metadata)
 
 	package2 := global.NewSubEmitter().
-		WithCallsiteProvider(emitter.StaticCallsiteProvider(pkg2Metadata)).
+		// WithCallsiteProvider(emitter.StaticCallsiteProvider(pkg2Metadata)).
 		WithStaticMetadata(pkg2Metadata)
 
 	return &MultiPackageSetup{
 		global:   global,
-		package1: package1,
-		package2: package2,
+		package1: package1.(*emitter.Emitter),
+		package2: package2.(*emitter.Emitter),
 	}
 }
