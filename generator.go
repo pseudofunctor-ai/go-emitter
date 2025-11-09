@@ -918,6 +918,11 @@ func (e *callSiteExtractor) extractFromCall(call *ast.CallExpr) (string, CallSit
 
 // extractDirectCall extracts event name from direct emitter method calls
 func (e *callSiteExtractor) extractDirectCall(call *ast.CallExpr, methodName string) (string, CallSite) {
+	// Validate the complete function signature
+	if !e.validateSignature(call, methodName) {
+		return "", CallSite{}
+	}
+
 	eventName := e.extractEventNameArg(call, methodName)
 	if eventName == "" {
 		return "", CallSite{}
@@ -937,9 +942,39 @@ func (e *callSiteExtractor) extractDirectCall(call *ast.CallExpr, methodName str
 // extractTimerCall extracts event name from timer.Time() calls
 func (e *callSiteExtractor) extractTimerCall(call *ast.CallExpr) (string, CallSite) {
 	// Timer.Time signature: Time(ctx context.Context, event string, props map[string]interface{}, fn func() T) T
-	// We need at least 4 arguments
-	if len(call.Args) < 4 {
+	// We need exactly 4 arguments
+	if len(call.Args) != 4 {
 		return "", CallSite{}
+	}
+
+	// Validate parameter types: (context.Context, string, map[string]interface{}, func() T)
+	// arg[0]: context.Context
+	if tv, ok := e.pkg.TypesInfo.Types[call.Args[0]]; ok {
+		if !e.matchesType(tv.Type, paramContext) {
+			return "", CallSite{}
+		}
+	}
+
+	// arg[1]: string (event name)
+	if tv, ok := e.pkg.TypesInfo.Types[call.Args[1]]; ok {
+		if !e.matchesType(tv.Type, paramString) {
+			return "", CallSite{}
+		}
+	}
+
+	// arg[2]: map[string]interface{} (props)
+	if tv, ok := e.pkg.TypesInfo.Types[call.Args[2]]; ok {
+		// Allow nil for props
+		if tv.Type.String() != "untyped nil" && !e.matchesType(tv.Type, paramProps) {
+			return "", CallSite{}
+		}
+	}
+
+	// arg[3]: func() T (function)
+	if tv, ok := e.pkg.TypesInfo.Types[call.Args[3]]; ok {
+		if !e.matchesType(tv.Type, paramFunc) {
+			return "", CallSite{}
+		}
 	}
 
 	// Extract event name from the second argument (index 1)
@@ -1461,28 +1496,209 @@ func (e *callSiteExtractor) findEnclosingFunc(pos token.Pos) string {
 	return ""
 }
 
-// isEmitterMethod returns true if the method name is an emitter method that takes an event name
-func isEmitterMethod(name string) bool {
-	methods := []string{
-		// Direct metric/log methods
-		"Count", "Gauge", "Histogram", "Meter", "Set", "Event",
-		// Logger methods
-		"Info", "Warn", "Error", "Fatal", "Debug", "Trace",
-		"Infof", "Warnf", "Errorf", "Fatalf", "Debugf", "Tracef",
-		"InfoContext", "WarnContext", "ErrorContext", "FatalContext", "DebugContext", "TraceContext",
-		"InfofContext", "WarnfContext", "ErrorfContext", "FatalfContext", "DebugfContext", "TracefContext",
-		// Backend methods
-		"EmitInt", "EmitFloat", "EmitDuration",
-		// Registration methods
-		"Metric", "Log", "MetricWithProps", "LogWithProps",
-	}
+// paramType represents an expected parameter type in a method signature
+type paramType int
 
-	for _, m := range methods {
-		if name == m {
+const (
+	paramContext paramType = iota
+	paramString
+	paramProps // map[string]interface{}
+	paramInt64
+	paramFloat64
+	paramMetricType
+	paramStringSlice // []string
+	paramFunc        // any function type
+	paramVariadic    // variadic args
+)
+
+// methodSignature defines the expected parameter types for a method
+type methodSignature struct {
+	params []paramType
+}
+
+// emitterMethodSignatures maps method names to their expected parameter signatures
+var emitterMethodSignatures = map[string]methodSignature{
+	// Metric methods: (ctx, event, props, value)
+	"Count":        {[]paramType{paramContext, paramString, paramProps, paramInt64}},
+	"Gauge":        {[]paramType{paramContext, paramString, paramProps, paramFloat64}},
+	"Meter":        {[]paramType{paramContext, paramString, paramProps, paramInt64}},
+	"Set":          {[]paramType{paramContext, paramString, paramProps, paramInt64}},
+	"Event":        {[]paramType{paramContext, paramString, paramProps}},
+	"Histogram":    {[]paramType{paramContext, paramString, paramProps}},
+	"EmitInt":      {[]paramType{paramContext, paramString, paramProps, paramInt64, paramMetricType}},
+	"EmitFloat":    {[]paramType{paramContext, paramString, paramProps, paramFloat64, paramMetricType}},
+	"EmitDuration": {[]paramType{paramContext, paramString, paramProps, paramVariadic, paramMetricType}},
+
+	// Logger methods (no context): (event, props, msg)
+	"Info":  {[]paramType{paramString, paramProps, paramString}},
+	"Warn":  {[]paramType{paramString, paramProps, paramString}},
+	"Error": {[]paramType{paramString, paramProps, paramString}},
+	"Fatal": {[]paramType{paramString, paramProps, paramString}},
+	"Debug": {[]paramType{paramString, paramProps, paramString}},
+	"Trace": {[]paramType{paramString, paramProps, paramString}},
+
+	// Logger methods with format (no context): (event, props, format, ...args)
+	"Infof":  {[]paramType{paramString, paramProps, paramString, paramVariadic}},
+	"Warnf":  {[]paramType{paramString, paramProps, paramString, paramVariadic}},
+	"Errorf": {[]paramType{paramString, paramProps, paramString, paramVariadic}},
+	"Fatalf": {[]paramType{paramString, paramProps, paramString, paramVariadic}},
+	"Debugf": {[]paramType{paramString, paramProps, paramString, paramVariadic}},
+	"Tracef": {[]paramType{paramString, paramProps, paramString, paramVariadic}},
+
+	// Logger methods with context: (ctx, event, props, msg)
+	"InfoContext":  {[]paramType{paramContext, paramString, paramProps, paramString}},
+	"WarnContext":  {[]paramType{paramContext, paramString, paramProps, paramString}},
+	"ErrorContext": {[]paramType{paramContext, paramString, paramProps, paramString}},
+	"FatalContext": {[]paramType{paramContext, paramString, paramProps, paramString}},
+	"DebugContext": {[]paramType{paramContext, paramString, paramProps, paramString}},
+	"TraceContext": {[]paramType{paramContext, paramString, paramProps, paramString}},
+
+	// Logger methods with context and format: (ctx, event, props, format, ...args)
+	"InfofContext":  {[]paramType{paramContext, paramString, paramProps, paramString, paramVariadic}},
+	"WarnfContext":  {[]paramType{paramContext, paramString, paramProps, paramString, paramVariadic}},
+	"ErrorfContext": {[]paramType{paramContext, paramString, paramProps, paramString, paramVariadic}},
+	"FatalfContext": {[]paramType{paramContext, paramString, paramProps, paramString, paramVariadic}},
+	"DebugfContext": {[]paramType{paramContext, paramString, paramProps, paramString, paramVariadic}},
+	"TracefContext": {[]paramType{paramContext, paramString, paramProps, paramString, paramVariadic}},
+
+	// Registration methods
+	"Metric":          {[]paramType{paramString, paramMetricType}},
+	"MetricWithProps": {[]paramType{paramString, paramMetricType, paramStringSlice}},
+	"Log":             {[]paramType{paramString, paramFunc}},
+	"LogWithProps":    {[]paramType{paramString, paramFunc, paramStringSlice}},
+}
+
+// matchesType checks if a given type matches the expected parameter type
+func (e *callSiteExtractor) matchesType(actualType types.Type, expected paramType) bool {
+	switch expected {
+	case paramContext:
+		// Check if it's context.Context (interface from context package)
+		named, ok := actualType.(*types.Named)
+		if !ok {
+			return false
+		}
+		obj := named.Obj()
+		return obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == "context" && obj.Name() == "Context"
+
+	case paramString:
+		basic, ok := actualType.(*types.Basic)
+		return ok && basic.Kind() == types.String
+
+	case paramProps:
+		// Allow nil for props parameter
+		if actualType.String() == "untyped nil" {
 			return true
 		}
+		// Check for map[string]interface{}
+		mapType, ok := actualType.(*types.Map)
+		if !ok {
+			return false
+		}
+		// Check key is string
+		keyBasic, ok := mapType.Key().(*types.Basic)
+		if !ok || keyBasic.Kind() != types.String {
+			return false
+		}
+		// Check value is interface{} (empty interface)
+		valueIface, ok := mapType.Elem().(*types.Interface)
+		return ok && valueIface.NumMethods() == 0
+
+	case paramInt64:
+		basic, ok := actualType.(*types.Basic)
+		return ok && basic.Kind() == types.Int64
+
+	case paramFloat64:
+		basic, ok := actualType.(*types.Basic)
+		return ok && basic.Kind() == types.Float64
+
+	case paramMetricType:
+		// Check if it's types.MetricType (named type from emitter/types package)
+		named, ok := actualType.(*types.Named)
+		if !ok {
+			return false
+		}
+		obj := named.Obj()
+		return obj != nil && obj.Name() == "MetricType" &&
+			obj.Pkg() != nil && strings.HasSuffix(obj.Pkg().Path(), "/emitter/types")
+
+	case paramStringSlice:
+		// Check for []string
+		slice, ok := actualType.(*types.Slice)
+		if !ok {
+			return false
+		}
+		elemBasic, ok := slice.Elem().(*types.Basic)
+		return ok && elemBasic.Kind() == types.String
+
+	case paramFunc:
+		// Accept any function type
+		_, ok := actualType.(*types.Signature)
+		return ok
+
+	case paramVariadic:
+		// Variadic parameters are handled specially - always return true
+		return true
+
+	default:
+		return false
 	}
-	return false
+}
+
+// validateSignature checks if a call's arguments match the expected method signature
+func (e *callSiteExtractor) validateSignature(call *ast.CallExpr, methodName string) bool {
+	sig, exists := emitterMethodSignatures[methodName]
+	if !exists {
+		// Unknown method - allow it through (backward compatibility)
+		return true
+	}
+
+	// Check if we have enough arguments (excluding variadic)
+	minArgs := len(sig.params)
+	hasVariadic := false
+	if minArgs > 0 && sig.params[minArgs-1] == paramVariadic {
+		minArgs--
+		hasVariadic = true
+	}
+
+	if len(call.Args) < minArgs {
+		return false
+	}
+
+	// If not variadic, must match exactly
+	if !hasVariadic && len(call.Args) != len(sig.params) {
+		return false
+	}
+
+	// Check each parameter type
+	for i, expectedType := range sig.params {
+		if expectedType == paramVariadic {
+			// Variadic params - rest of args can be anything
+			break
+		}
+
+		if i >= len(call.Args) {
+			return false
+		}
+
+		// Get the actual type of the argument
+		tv, ok := e.pkg.TypesInfo.Types[call.Args[i]]
+		if !ok {
+			// No type info - can't validate, allow it through
+			continue
+		}
+
+		if !e.matchesType(tv.Type, expectedType) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isEmitterMethod returns true if the method name is an emitter method that takes an event name
+func isEmitterMethod(name string) bool {
+	_, exists := emitterMethodSignatures[name]
+	return exists
 }
 
 // getEventNameArgIndex returns the argument index for the event name parameter
