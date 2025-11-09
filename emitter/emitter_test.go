@@ -545,6 +545,73 @@ var _ = Describe("Emitter", func() {
 				emitter.Metric("duplicate", COUNT)
 			}).To(Panic())
 		})
+
+		It("Should not panic when registering event after WithStaticMetadata", func() {
+			// Allow initial seed emissions for static metadata
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			// Create static metadata with several events
+			staticData := map[string]CallSiteDetails{
+				"static_metric":           {MetricType: "COUNT", PropertyKeys: nil},
+				"static_metric_with_props": {MetricType: "GAUGE", PropertyKeys: []string{"prop1", "prop2"}},
+				"static_log":              {MetricType: "COUNT", PropertyKeys: nil},
+				"static_log_with_props":   {MetricType: "COUNT", PropertyKeys: []string{"log_prop"}},
+			}
+
+			// Register events via static metadata
+			emitter.WithStaticMetadata(staticData)
+
+			// These should NOT panic because events were registered via static metadata, not dynamically
+			Expect(func() {
+				emitter.Metric("static_metric", COUNT)
+			}).NotTo(Panic())
+
+			Expect(func() {
+				emitter.MetricWithProps("static_metric_with_props", GAUGE, []string{"prop1", "prop2"})
+			}).NotTo(Panic())
+
+			Expect(func() {
+				emitter.Log("static_log", func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {})
+			}).NotTo(Panic())
+
+			Expect(func() {
+				emitter.LogWithProps("static_log_with_props", func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}) {}, []string{"log_prop"})
+			}).NotTo(Panic())
+		})
+
+		It("Should still panic when actually double-registering event dynamically", func() {
+			// Allow initial seed emission
+			mockBackend.EXPECT().EmitInt(gomock.Any(), "dynamic_event", gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
+
+			// First registration
+			emitter.Metric("dynamic_event", COUNT)
+
+			// Second registration should panic (actual double-registration)
+			Expect(func() {
+				emitter.Metric("dynamic_event", COUNT)
+			}).To(Panic())
+		})
+
+		It("Should panic when re-registering after static then dynamic registration", func() {
+			// Allow initial seed emissions
+			mockBackend.EXPECT().EmitInt(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			// Create static metadata
+			staticData := map[string]CallSiteDetails{
+				"test_event": {MetricType: "COUNT", PropertyKeys: nil},
+			}
+			emitter.WithStaticMetadata(staticData)
+
+			// First dynamic registration should succeed (converting from static)
+			Expect(func() {
+				emitter.Metric("test_event", COUNT)
+			}).NotTo(Panic())
+
+			// Second dynamic registration should panic (now it's dynamically registered)
+			Expect(func() {
+				emitter.Metric("test_event", COUNT)
+			}).To(Panic())
+		})
 	})
 
 	Describe("Log Registration", func() {
