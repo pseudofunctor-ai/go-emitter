@@ -32,13 +32,14 @@ type eventCallSiteProps struct {
 }
 
 type eventMetadata struct {
-	metricType   t.MetricType
-	propertyKeys []string
+  registeredDynamically bool
+	metricType            t.MetricType
+	propertyKeys          []string
 }
 
 type Emitter struct {
 
-	registeredEvents    map[string]eventMetadata
+	registeredEvents    map[string]*eventMetadata
 	memoTable           map[string]eventCallSiteProps
 	callback            func(context.Context, string, map[string]interface{})
 	hostname_provider   func() (string, error)
@@ -109,7 +110,7 @@ func StaticCallsiteProvider(staticData map[string]t.CallSiteDetails) func(string
 
 func NewEmitter(backends ...t.EmitterBackend) *Emitter {
 	return &Emitter{
-		registeredEvents:  make(map[string]eventMetadata),
+		registeredEvents:  make(map[string]*eventMetadata),
 		memoTable:         make(map[string]eventCallSiteProps),
 		backends:          backends,
 		magicHostname:     false,
@@ -136,7 +137,7 @@ func (e *Emitter) NewSubEmitter() t.CombinedEmitter {
 	copy(backendsCopy, e.backends)
 
 	return &Emitter{
-		registeredEvents:  make(map[string]eventMetadata),
+		registeredEvents:  make(map[string]*eventMetadata),
 		memoTable:         make(map[string]eventCallSiteProps),
 		callback:          e.callback,
 		hostname_provider: e.hostname_provider,
@@ -236,7 +237,8 @@ func (e *Emitter) WithStaticMetadata(staticData map[string]t.CallSiteDetails) t.
 		}
 
 		// Register the event with metadata
-		e.registeredEvents[eventName] = eventMetadata{
+		e.registeredEvents[eventName] = &eventMetadata{
+      registeredDynamically: false,
 			metricType:   metricType,
 			propertyKeys: details.PropertyKeys,
 		}
@@ -246,15 +248,23 @@ func (e *Emitter) WithStaticMetadata(staticData map[string]t.CallSiteDetails) t.
 }
 
 func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterFn {
-	if _, ok := e.registeredEvents[event]; ok {
-		panic(fmt.Sprintf("Event %s already registered", event))
-	}
+	if re, ok := e.registeredEvents[event]; ok {
+    if re.registeredDynamically {
+      panic(fmt.Sprintf("Event %s already registered", event))
+    }
+    re.registeredDynamically = true
+	} else {
+    e.registeredEvents[event] = &eventMetadata{
+      registeredDynamically: true,
+      metricType: metricType,
+      propertyKeys: nil,
+    }
+  }
 
 	eCopy := *e
 	silentE := (&eCopy).WithoutMagicProps()
 	silentE.EmitInt(context.Background(), event, nil, 0, metricType)
 
-	e.registeredEvents[event] = eventMetadata{metricType: metricType, propertyKeys: nil}
 	return func(ctx context.Context, props map[string]interface{}, value ...interface{}) {
     if len(value) == 0 {
       if metricType == t.COUNT {
@@ -282,14 +292,23 @@ func (e *Emitter) Metric(event string, metricType t.MetricType) t.MetricEmitterF
 }
 
 func (e *Emitter) Log(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{})) t.LogEmitterFn {
-	if _, ok := e.registeredEvents[event]; ok {
-		panic(fmt.Sprintf("Event %s already registered", event))
-	}
+	if re, ok := e.registeredEvents[event]; ok {
+    if re.registeredDynamically {
+      panic(fmt.Sprintf("Event %s already registered", event))
+    }
+    re.registeredDynamically = true
+	} else {
+    e.registeredEvents[event] = &eventMetadata{
+      registeredDynamically: true,
+      metricType: t.COUNT,
+      propertyKeys: nil,
+    }
+  }
+
 	eCopy := *e
 	silentE := (&eCopy).WithoutMagicProps()
 	silentE.EmitInt(context.Background(), event, nil, 0, t.COUNT)
 
-	e.registeredEvents[event] = eventMetadata{metricType: t.COUNT, propertyKeys: nil}
 	return func(ctx context.Context, props map[string]interface{}, format string, args ...interface{}) {
 		logfn(ctx, event, props, format, args...)
 	}
@@ -299,9 +318,18 @@ func (e *Emitter) Log(event string, logfn func(ctx context.Context, event string
 // It emits a zero value with placeholder values for seeding backends like Prometheus.
 // The returned function validates that only expected property keys are used.
 func (e *Emitter) MetricWithProps(event string, metricType t.MetricType, propKeys []string) t.MetricEmitterFn {
-	if _, ok := e.registeredEvents[event]; ok {
-		panic(fmt.Sprintf("Event %s already registered", event))
-	}
+	if re, ok := e.registeredEvents[event]; ok {
+    if re.registeredDynamically {
+      panic(fmt.Sprintf("Event %s already registered", event))
+    }
+    re.registeredDynamically = true
+	} else {
+    e.registeredEvents[event] = &eventMetadata{
+      registeredDynamically: true,
+      metricType: metricType,
+      propertyKeys: propKeys,
+    }
+  }
 
 	// Create seed props with placeholder values
 	seedProps := make(map[string]interface{}, len(propKeys))
@@ -313,8 +341,6 @@ func (e *Emitter) MetricWithProps(event string, metricType t.MetricType, propKey
 	eCopy := *e
 	silentE := (&eCopy).WithoutMagicProps()
 	silentE.EmitInt(context.Background(), event, seedProps, 0, metricType)
-
-	e.registeredEvents[event] = eventMetadata{metricType: metricType, propertyKeys: propKeys}
 
 	// Create a set for efficient lookup
 	propKeySet := make(map[string]struct{}, len(propKeys))
@@ -358,9 +384,18 @@ func (e *Emitter) MetricWithProps(event string, metricType t.MetricType, propKey
 // It emits a zero value with placeholder values for seeding backends.
 // The returned function validates that only expected property keys are used.
 func (e *Emitter) LogWithProps(event string, logfn func(ctx context.Context, event string, props map[string]interface{}, format string, args ...interface{}), propKeys []string) t.LogEmitterFn {
-	if _, ok := e.registeredEvents[event]; ok {
-		panic(fmt.Sprintf("Event %s already registered", event))
-	}
+	if re, ok := e.registeredEvents[event]; ok {
+    if re.registeredDynamically {
+      panic(fmt.Sprintf("Event %s already registered", event))
+    }
+    re.registeredDynamically = true
+	} else {
+    e.registeredEvents[event] = &eventMetadata{
+      registeredDynamically: true,
+      metricType: t.COUNT,
+      propertyKeys: propKeys,
+    }
+  }
 
 	// Create seed props with placeholder values
 	seedProps := make(map[string]interface{}, len(propKeys))
@@ -372,8 +407,6 @@ func (e *Emitter) LogWithProps(event string, logfn func(ctx context.Context, eve
 	eCopy := *e
 	silentE := (&eCopy).WithoutMagicProps()
 	silentE.EmitInt(context.Background(), event, seedProps, 0, t.COUNT)
-
-	e.registeredEvents[event] = eventMetadata{metricType: t.COUNT, propertyKeys: propKeys}
 
 	// Create a set for efficient lookup
 	propKeySet := make(map[string]struct{}, len(propKeys))
