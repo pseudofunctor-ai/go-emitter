@@ -19,7 +19,7 @@ func NewDependencies() Dependencies {
 	slg := slog.New(sjson)
 	backend := log.NewLogEmitter(slg)
 	return Dependencies {
-    Emitter: e.NewEmitter(backend).WithAllMagicProps().WithCallsiteProvider(e.StaticCallsiteProvider),
+    Emitter: e.NewEmitter(backend).WithAllMagicProps().WithCallsiteProvider(e.StaticCallsiteProvider(nil)),
   }
 }
 

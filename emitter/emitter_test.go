@@ -647,8 +647,8 @@ var _ = Describe("Emitter", func() {
 		It("Should measure execution time", func() {
 			timingEmitter := NewTimingEmitter[int](emitter)
 
-			mockBackend.EXPECT().EmitInt(context.Background(), "timing_test", map[string]interface{}{"foo": "bar"}, gomock.Any(), TIMER).Do(func(_ context.Context, _ string, _ map[string]interface{}, value int64, _ MetricType) {
-				Expect(value).To(BeNumerically(">=", 10))
+			mockBackend.EXPECT().EmitDuration(context.Background(), "timing_test", map[string]interface{}{"foo": "bar"}, gomock.Any(), TIMER).Do(func(_ context.Context, _ string, _ map[string]interface{}, value time.Duration, _ MetricType) {
+				Expect(value.Milliseconds()).To(BeNumerically(">=", 10))
 			})
 
 			result := timingEmitter.Time(context.Background(), "timing_test", map[string]interface{}{"foo": "bar"}, func() int {

@@ -53,10 +53,10 @@ type Emitter struct {
 }
 
 type TimingEmitter[T any] struct {
-	emitter *Emitter
+	emitter t.DurationEmitter
 }
 
-func NewTimingEmitter[T any](emitter *Emitter) TimingEmitter[T] {
+func NewTimingEmitter[T any](emitter t.DurationEmitter) TimingEmitter[T] {
 	return TimingEmitter[T]{emitter: emitter}
 }
 
@@ -538,7 +538,7 @@ func (e TimingEmitter[T]) Time(ctx context.Context, event string, props map[stri
 	start := time.Now()
 	r := fn()
 	elapsed := time.Since(start)
-	e.emitter.EmitInt(ctx, event, props, elapsed.Milliseconds(), t.TIMER)
+	e.emitter.EmitDuration(ctx, event, props, elapsed, t.TIMER)
 	return r
 }
 
