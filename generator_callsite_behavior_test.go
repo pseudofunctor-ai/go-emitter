@@ -164,8 +164,6 @@ func TestCallSiteBehavior(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Log(tt.description)
-
 			pkg, err := loadPackage(tt.dir)
 			if err != nil {
 				t.Fatalf("failed to load package: %v", err)
@@ -174,14 +172,6 @@ func TestCallSiteBehavior(t *testing.T) {
 			callsites, err := extractCallSites(pkg)
 			if err != nil {
 				t.Fatalf("failed to extract callsites: %v", err)
-			}
-
-			// Debug: print all found callsites for this test
-			if len(callsites) > 0 {
-				t.Logf("Found %d callsites:", len(callsites))
-				for name, cs := range callsites {
-					t.Logf("  %q: line %d, func %q", name, cs.LineNo, cs.FuncName)
-				}
 			}
 
 			// Check expected callsites
