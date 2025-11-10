@@ -1105,12 +1105,6 @@ func (e *callSiteExtractor) findCallSiteFromDefinition(pos token.Pos) CallSite {
 	return callsite
 }
 
-// findEventNameFromDefinition finds the event name from where a variable is defined
-func (e *callSiteExtractor) findEventNameFromDefinition(pos token.Pos) string {
-	callsite := e.findCallSiteFromDefinition(pos)
-	return callsite.EventName
-}
-
 // extractCallSiteFromAssignment extracts full callsite from an assignment like `foo := emitter.Metric("event_name", COUNT)`
 // or traces through callback references like `cb := s.emitters.validateSuccess`
 func (e *callSiteExtractor) extractCallSiteFromAssignment(assign *ast.AssignStmt) CallSite {
@@ -1178,12 +1172,6 @@ func (e *callSiteExtractor) extractCallSiteFromAssignment(assign *ast.AssignStmt
 	return CallSite{}
 }
 
-// extractEventNameFromAssignment extracts event name from an assignment like `foo := emitter.Metric("event_name", COUNT)`
-func (e *callSiteExtractor) extractEventNameFromAssignment(assign *ast.AssignStmt) string {
-	callsite := e.extractCallSiteFromAssignment(assign)
-	return callsite.EventName
-}
-
 // extractCallSiteFromValueSpec extracts full callsite from a var declaration
 // or traces through callback references like `var cb = s.emitters.validateSuccess`
 func (e *callSiteExtractor) extractCallSiteFromValueSpec(spec *ast.ValueSpec) CallSite {
@@ -1248,12 +1236,6 @@ func (e *callSiteExtractor) extractCallSiteFromValueSpec(spec *ast.ValueSpec) Ca
 	}
 
 	return CallSite{}
-}
-
-// extractEventNameFromValueSpec extracts event name from a var declaration
-func (e *callSiteExtractor) extractEventNameFromValueSpec(spec *ast.ValueSpec) string {
-	callsite := e.extractCallSiteFromValueSpec(spec)
-	return callsite.EventName
 }
 
 // extractEventNameArg extracts the event name string literal from a call expression

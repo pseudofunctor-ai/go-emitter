@@ -361,6 +361,130 @@ func TestGeneratorIntegration(t *testing.T) {
 					PropertyKeys: []string{"source"},
 					MetricType:   "TIMER",
 				},
+				// Advanced patterns: Direct function result indexing
+				"inline_slice_index_0": {
+					EventName:    "inline_slice_index_0",
+					LineNo:       32, // Line where getCallbackSlice(em)[0](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectFunctionResultIndexing",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"inline_slice_index_1": {
+					EventName:    "inline_slice_index_1",
+					LineNo:       33, // Line where getCallbackSlice(em)[1](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectFunctionResultIndexing",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "GAUGE",
+				},
+				"inline_map_success": {
+					EventName:    "inline_map_success",
+					LineNo:       36, // Line where getCallbackMap(em)["success"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectFunctionResultIndexing",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"inline_map_failure": {
+					EventName:    "inline_map_failure",
+					LineNo:       37, // Line where getCallbackMap(em)["failure"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.DirectFunctionResultIndexing",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				// Struct field arrays
+				"struct_array_metric_0": {
+					EventName:    "struct_array_metric_0",
+					LineNo:       67, // Line where s.metricHandlers[0](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.UseCallbackArray",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"struct_array_metric_1": {
+					EventName:    "struct_array_metric_1",
+					LineNo:       68, // Line where s.metricHandlers[1](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.UseCallbackArray",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "HISTOGRAM",
+				},
+				"struct_map_info": {
+					EventName:    "struct_map_info",
+					LineNo:       70, // Line where s.logHandlers["info"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.UseCallbackArray",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"struct_map_error": {
+					EventName:    "struct_map_error",
+					LineNo:       71, // Line where s.logHandlers["error"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.UseCallbackArray",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				// Inline collection assignment
+				"inline_assigned_0": {
+					EventName:    "inline_assigned_0",
+					LineNo:       92, // Line where handlers[0](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.InlineCollectionAssignment",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"inline_assigned_1": {
+					EventName:    "inline_assigned_1",
+					LineNo:       93, // Line where handlers[1](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.InlineCollectionAssignment",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "GAUGE",
+				},
+				"inline_assigned_warn": {
+					EventName:    "inline_assigned_warn",
+					LineNo:       100, // Line where logMap["warn"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.InlineCollectionAssignment",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"inline_assigned_debug": {
+					EventName:    "inline_assigned_debug",
+					LineNo:       101, // Line where logMap["debug"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.InlineCollectionAssignment",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				// Var declaration collections
+				"var_decl_metric_0": {
+					EventName:    "var_decl_metric_0",
+					LineNo:       123, // Line where globalMetricSlice[0](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.VarDeclCollectionUsage",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"var_decl_metric_1": {
+					EventName:    "var_decl_metric_1",
+					LineNo:       124, // Line where globalMetricSlice[1](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.VarDeclCollectionUsage",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "TIMER",
+				},
+				"var_decl_trace": {
+					EventName:    "var_decl_trace",
+					LineNo:       126, // Line where globalLogMap["trace"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.VarDeclCollectionUsage",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				"var_decl_fatal": {
+					EventName:    "var_decl_fatal",
+					LineNo:       127, // Line where globalLogMap["fatal"](...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.VarDeclCollectionUsage",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
+				// Decorator override (decorator should win, marking line 144 not 138)
+				"decorator_override_event": {
+					EventName:    "decorator_override_event",
+					LineNo:       144, // Line where em.MetricFnCallsite(baseCallback)(...) is invoked
+					FuncName:     "github.com/pseudofunctor-ai/go-emitter/testdata/example.CallbackWithDecorator",
+					PropertyKeys: nil, // Props at invocation site, not definition
+					MetricType:   "COUNT",
+				},
 			},
 		},
 	}
@@ -416,10 +540,6 @@ func TestGeneratorIntegration(t *testing.T) {
 
 			if len(callsites) != len(tt.expected) {
 				t.Errorf("expected %d callsites, got %d", len(tt.expected), len(callsites))
-				t.Logf("Got callsites:")
-				for name, cs := range callsites {
-					t.Logf("  %q: line %d, func %q", name, cs.LineNo, cs.FuncName)
-				}
 			}
 
 			for eventName, expectedSite := range tt.expected {
